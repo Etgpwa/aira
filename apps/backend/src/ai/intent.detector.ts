@@ -3,7 +3,7 @@ import { INTENT_SYSTEM_PROMPT } from './prompts/intent.prompt';
 import { memoryManager } from './memory.manager';
 
 export interface IntentResult {
-    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'ADD_SCHEDULE' | 'QUERY_AGENDA' | 'CHITCHAT' | 'UNKNOWN';
+    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'CHITCHAT' | 'UNKNOWN';
     entities: {
         amount: number | null;
         currency: string | null;

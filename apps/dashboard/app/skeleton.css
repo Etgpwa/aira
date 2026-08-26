@@ -1,0 +1,37 @@
+/* ===== SKELETON LOADING SYSTEM ===== */
+@keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+}
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--bg-secondary) 25%,
+        var(--bg-tertiary) 50%,
+        var(--bg-secondary) 75%
+    );
+    background-size: 800px 100%;
+    animation: shimmer 1.4s infinite ease-in-out;
+    border-radius: 6px;
+}
+
+/* Skeleton shapes */
+.sk-text-sm { height: 0.75rem; border-radius: 4px; }
+.sk-text { height: 1rem; border-radius: 4px; }
+.sk-text-lg { height: 1.25rem; border-radius: 4px; }
+.sk-text-xl { height: 1.5rem; border-radius: 4px; }
+.sk-text-2xl { height: 2rem; border-radius: 4px; }
+
+.sk-card {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: var(--card-shadow);
+}
+
+.sk-icon { width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0; }
+.sk-btn { height: 36px; width: 120px; border-radius: 6px; }
+.sk-progress { height: 8px; border-radius: 9999px; }
+.sk-bar { border-radius: 4px 4px 0 0; }

@@ -1,0 +1,63 @@
+.goals-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.goals-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .goals-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .goals-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.goal-status {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.status-completed {
+  background-color: var(--success);
+  color: white;
+}
+
+.status-progress {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.goal-amounts {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.progress-container {
+  width: 100%;
+  height: 8px;
+  background-color: var(--bg-secondary);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.5s ease-out;
+}
+
+.col-span-full {
+  grid-column: 1 / -1;
+}

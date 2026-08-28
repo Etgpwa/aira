@@ -18,17 +18,18 @@ Daftar Intent:
 11. QUERY_FINANCE : tanya soal keuangan ("berapa saldo BCA?", "sisa budget makan?", "siapa aja yang utang ke aku?")
 12. ADD_TASK : membuat catatan tugas / to-do list ("ingetin besok jam 10 kumpul tugas web", "catat besok beli galon")
 13. COMPLETE_TASK : menandai tugas sudah selesai ("tugas web udah kelar", "beli galon done")
-14. DELETE_TASK : menghapus catatan tugas ("hapus tugas web", "batal beli galon")
-15. ADD_SCHEDULE : membuat jadwal kegiatan rutin/kuliah ("jadwal matkul web hari senin jam 8 sampai 10", "jadwal meeting tiap kamis jam 9")
-16. DELETE_SCHEDULE : menghapus jadwal rutin ("hapus jadwal meeting kamis")
-17. QUERY_AGENDA : tanya jadwal rutin atau tugas hari ini/besok ("hari ini jadwatchku apa aja?", "besok ada tugas ga?")
-18. CHITCHAT : obrolan biasa, salam, pertanyaan di luar keuangan/produktivitas
-19. UNKNOWN : pesan tidak dipahami
+14. UPDATE_TASK_PROGRESS : update progres/tahap pengerjaan tugas ke tahap In Progress ("tugas web lagi ngerjain bab 1", "tugas makalah in progress bikin kuesioner", "update progres tugas frontend sampai responsive")
+15. DELETE_TASK : menghapus catatan tugas ("hapus tugas web", "batal beli galon")
+16. ADD_SCHEDULE : membuat jadwal kegiatan rutin/kuliah ("jadwal matkul web hari senin jam 8 sampai 10", "jadwal meeting tiap kamis jam 9")
+17. DELETE_SCHEDULE : menghapus jadwal rutin ("hapus jadwal meeting kamis")
+18. QUERY_AGENDA : tanya jadwal rutin atau tugas hari ini/besok ("hari ini jadwatchku apa aja?", "besok ada tugas ga?")
+19. CHITCHAT : obrolan biasa, salam, pertanyaan di luar keuangan/produktivitas
+20. UNKNOWN : pesan tidak dipahami
 
 OUTPUT: JSON valid, TANPA markdown backticks.
 
 {
-  "intent": "ADD_EXPENSE" | "ADD_INCOME" | "SET_BALANCE" | "SET_BUDGET" | "ADD_DEBT" | "ADD_RECEIVABLE" | "PAY_DEBT" | "CREATE_GOAL" | "TOPUP_GOAL" | "DELETE_GOAL" | "QUERY_FINANCE" | "ADD_TASK" | "COMPLETE_TASK" | "DELETE_TASK" | "ADD_SCHEDULE" | "DELETE_SCHEDULE" | "QUERY_AGENDA" | "CHITCHAT" | "UNKNOWN",
+  "intent": "ADD_EXPENSE" | "ADD_INCOME" | "SET_BALANCE" | "SET_BUDGET" | "ADD_DEBT" | "ADD_RECEIVABLE" | "PAY_DEBT" | "CREATE_GOAL" | "TOPUP_GOAL" | "DELETE_GOAL" | "QUERY_FINANCE" | "ADD_TASK" | "COMPLETE_TASK" | "UPDATE_TASK_PROGRESS" | "DELETE_TASK" | "ADD_SCHEDULE" | "DELETE_SCHEDULE" | "QUERY_AGENDA" | "CHITCHAT" | "UNKNOWN",
   "entities": {
     "amount": number | null,
     "currency": string | null,

@@ -84,6 +84,34 @@ export const connectToWhatsApp = async () => {
     const messageBuffers: Map<string, { texts: string[]; timer: NodeJS.Timeout }> = new Map();
     const DEBOUNCE_DELAY_MS = 3500; // Tunggu 3.5 detik jika ada pesan susulan
 
+    interface PendingConfirmation {
+        type: 'COMPLETE_SINGLE' | 'COMPLETE_MULTI' | 'PROGRESS_SINGLE' | 'PROGRESS_MULTI';
+        taskId?: string;
+        taskTitle?: string;
+        progressDesc?: string;
+        candidates?: Array<{ id: string; title: string; due_date: string | null }>;
+        expiresAt: number;
+    }
+
+    const pendingConfirmations: Map<string, PendingConfirmation> = new Map();
+
+    function formatDeadline(dueDateStr: string | null | undefined): string {
+        if (!dueDateStr) return 'Tidak ada deadline';
+        try {
+            const d = new Date(dueDateStr);
+            return d.toLocaleDateString('id-ID', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Asia/Jakarta'
+            });
+        } catch {
+            return dueDateStr;
+        }
+    }
+
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type === 'notify') {
             for (const msg of m.messages) {
@@ -193,6 +221,79 @@ export const connectToWhatsApp = async () => {
 
                             console.log(`\n💬 Memproses total ${currentBuffer.texts.length} pesan dari ${from}:\n"${combinedText}"`);
 
+                            const cleanSender = from.split('@')[0].split(':')[0];
+                            const pending = pendingConfirmations.get(cleanSender);
+
+                            // Intersep percakapan jika user sedang dalam sesi konfirmasi tugas
+                            if (pending && Date.now() < pending.expiresAt) {
+                                const trimmed = combinedText.trim().toLowerCase();
+
+                                // 1. Batal
+                                if (/^(batal|cancel|tidak|bukan|ga|nggak|bukan itu)$/i.test(trimmed)) {
+                                    pendingConfirmations.delete(cleanSender);
+                                    await sock.sendMessage(from, { text: 'oke, dibatalkan.' });
+                                    return;
+                                }
+
+                                // 2. Konfirmasi Selesai Single ("ya", "iya", "ok", dll)
+                                if (pending.type === 'COMPLETE_SINGLE') {
+                                    if (/^(ya|iya|betul|benar|ok|oke|yup|yoi|tandai|selesai|1)$/i.test(trimmed)) {
+                                        pendingConfirmations.delete(cleanSender);
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        await taskService.completeTaskById({ userId, taskId: pending.taskId! });
+                                        await sock.sendMessage(from, { text: `oke, tugas *${pending.taskTitle}* selesai ✓` });
+                                        return;
+                                    }
+                                }
+
+                                // 3. Konfirmasi Selesai Multi (Pilihan Angka 1-3)
+                                if (pending.type === 'COMPLETE_MULTI') {
+                                    const choice = parseInt(trimmed, 10);
+                                    if (!isNaN(choice) && pending.candidates && choice >= 1 && choice <= pending.candidates.length) {
+                                        pendingConfirmations.delete(cleanSender);
+                                        const selected = pending.candidates[choice - 1];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        await taskService.completeTaskById({ userId, taskId: selected.id });
+                                        await sock.sendMessage(from, { text: `oke, tugas *${selected.title}* selesai ✓` });
+                                        return;
+                                    }
+                                }
+
+                                // 4. Konfirmasi Progres Single
+                                if (pending.type === 'PROGRESS_SINGLE') {
+                                    if (/^(ya|iya|betul|benar|ok|oke|yup|yoi|1)$/i.test(trimmed)) {
+                                        pendingConfirmations.delete(cleanSender);
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        await taskService.updateTaskProgress({
+                                            userId,
+                                            taskId: pending.taskId!,
+                                            progressDescription: pending.progressDesc || 'Sedang dikerjakan',
+                                            status: 'IN_PROGRESS'
+                                        });
+                                        await sock.sendMessage(from, { text: `oke, tugas *${pending.taskTitle}* masuk In Progress (Progres: ${pending.progressDesc})` });
+                                        return;
+                                    }
+                                }
+
+                                // 5. Konfirmasi Progres Multi (Pilihan Angka 1-3)
+                                if (pending.type === 'PROGRESS_MULTI') {
+                                    const choice = parseInt(trimmed, 10);
+                                    if (!isNaN(choice) && pending.candidates && choice >= 1 && choice <= pending.candidates.length) {
+                                        pendingConfirmations.delete(cleanSender);
+                                        const selected = pending.candidates[choice - 1];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        await taskService.updateTaskProgress({
+                                            userId,
+                                            taskId: selected.id,
+                                            progressDescription: pending.progressDesc || 'Sedang dikerjakan',
+                                            status: 'IN_PROGRESS'
+                                        });
+                                        await sock.sendMessage(from, { text: `oke, tugas *${selected.title}* masuk In Progress (Progres: ${pending.progressDesc})` });
+                                        return;
+                                    }
+                                }
+                            }
+
                             try {
                                 const result = await detectIntent(from, combinedText);
                                 console.log('🧠 Gemini Intent Result:', JSON.stringify(result, null, 2));
@@ -246,25 +347,107 @@ export const connectToWhatsApp = async () => {
                                     }
                                 }
 
-                                // Integrasi Database: COMPLETE_TASK
+                                // Integrasi Database: COMPLETE_TASK (Fuzzy Search & Konfirmasi)
                                 if (result.intent === 'COMPLETE_TASK' && (result.entities.task_name || result.entities.description)) {
                                     try {
                                         const cleanSender = from.split('@')[0].split(':')[0];
                                         const userId = await userService.getOrCreateUserByPhone(cleanSender);
                                         const targetTitle = result.entities.task_name || result.entities.description || '';
-                                        const doneTask = await taskService.completeTask({
+
+                                        const { exactMatch, candidates } = await taskService.findSimilarTasks({
                                             userId,
-                                            title: targetTitle
+                                            queryTitle: targetTitle,
+                                            statuses: ['TODO', 'IN_PROGRESS']
                                         });
-                                        if (doneTask) {
-                                            console.log(`✅ Berhasil menyelesaikan tugas ${doneTask.title}`);
-                                            result.reply = `oke, tugas *${doneTask.title}* selesai ✓`;
+
+                                        if (exactMatch) {
+                                            await taskService.completeTaskById({ userId, taskId: exactMatch.id });
+                                            console.log(`✅ Berhasil menyelesaikan tugas exact match: ${exactMatch.title}`);
+                                            result.reply = `oke, tugas *${exactMatch.title}* selesai ✓`;
+                                        } else if (candidates.length === 1) {
+                                            const task = candidates[0].task;
+                                            pendingConfirmations.set(cleanSender, {
+                                                type: 'COMPLETE_SINGLE',
+                                                taskId: task.id,
+                                                taskTitle: task.title,
+                                                expiresAt: Date.now() + 5 * 60 * 1000
+                                            });
+                                            result.reply = `Apakah yang ini: "${task.title}"? (Deadline: ${formatDeadline(task.due_date)}). Mau aku tandai sebagai selesai?`;
+                                        } else if (candidates.length > 1) {
+                                            const top3 = candidates.slice(0, 3);
+                                            pendingConfirmations.set(cleanSender, {
+                                                type: 'COMPLETE_MULTI',
+                                                candidates: top3.map(c => c.task),
+                                                expiresAt: Date.now() + 5 * 60 * 1000
+                                            });
+                                            let msg = 'Ditemukan beberapa tugas yang mirip:\n';
+                                            top3.forEach((c, idx) => {
+                                                msg += `${idx + 1}. ${c.task.title} (Deadline: ${formatDeadline(c.task.due_date)})\n`;
+                                            });
+                                            msg += 'Balas dengan angka pilihanmu untuk menandai selesai (atau ketik "batal").';
+                                            result.reply = msg.trim();
                                         } else {
-                                            result.reply = `tugas "${targetTitle}" ga ketemu atau udah kelar`;
+                                            result.reply = `tugas "${targetTitle}" ga ketemu di daftar tugas aktif`;
                                         }
                                     } catch (dbErr) {
                                         console.error('❌ Gagal menyelesaikan task:', dbErr);
                                         result.reply = 'gagal update tugas, coba lagi';
+                                    }
+                                }
+
+                                // Integrasi Database: UPDATE_TASK_PROGRESS (Fuzzy Search & Progress Tracking)
+                                if (result.intent === 'UPDATE_TASK_PROGRESS' && (result.entities.task_name || result.entities.description)) {
+                                    try {
+                                        const cleanSender = from.split('@')[0].split(':')[0];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        const targetTitle = result.entities.task_name || '';
+                                        const progressDesc = result.entities.description || combinedText;
+
+                                        const { exactMatch, candidates } = await taskService.findSimilarTasks({
+                                            userId,
+                                            queryTitle: targetTitle || progressDesc,
+                                            statuses: ['TODO', 'IN_PROGRESS']
+                                        });
+
+                                        if (exactMatch) {
+                                            await taskService.updateTaskProgress({
+                                                userId,
+                                                taskId: exactMatch.id,
+                                                progressDescription: progressDesc,
+                                                status: 'IN_PROGRESS'
+                                            });
+                                            console.log(`✅ Berhasil update progres tugas ${exactMatch.title}`);
+                                            result.reply = `oke, tugas *${exactMatch.title}* masuk In Progress (Progres: ${progressDesc})`;
+                                        } else if (candidates.length === 1) {
+                                            const task = candidates[0].task;
+                                            pendingConfirmations.set(cleanSender, {
+                                                type: 'PROGRESS_SINGLE',
+                                                taskId: task.id,
+                                                taskTitle: task.title,
+                                                progressDesc,
+                                                expiresAt: Date.now() + 5 * 60 * 1000
+                                            });
+                                            result.reply = `Apakah yang ini: "${task.title}"? (Deadline: ${formatDeadline(task.due_date)}). Mau aku update progresnya ke In Progress: "${progressDesc}"?`;
+                                        } else if (candidates.length > 1) {
+                                            const top3 = candidates.slice(0, 3);
+                                            pendingConfirmations.set(cleanSender, {
+                                                type: 'PROGRESS_MULTI',
+                                                candidates: top3.map(c => c.task),
+                                                progressDesc,
+                                                expiresAt: Date.now() + 5 * 60 * 1000
+                                            });
+                                            let msg = 'Ditemukan beberapa tugas yang mirip:\n';
+                                            top3.forEach((c, idx) => {
+                                                msg += `${idx + 1}. ${c.task.title} (Deadline: ${formatDeadline(c.task.due_date)})\n`;
+                                            });
+                                            msg += 'Balas dengan angka pilihanmu untuk update progres (atau ketik "batal").';
+                                            result.reply = msg.trim();
+                                        } else {
+                                            result.reply = `tugas "${targetTitle || progressDesc}" ga ketemu di daftar tugas aktif`;
+                                        }
+                                    } catch (dbErr) {
+                                        console.error('❌ Gagal update progres task:', dbErr);
+                                        result.reply = 'gagal update progres tugas, coba lagi';
                                     }
                                 }
 

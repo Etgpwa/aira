@@ -1,5 +1,4 @@
-import Sidebar from "@/components/Sidebar";
-import ThemeToggle from "@/components/ThemeToggle";
+import BottomNav from "@/components/BottomNav";
 import RealtimeSubscriber from "@/components/RealtimeSubscriber";
 import { createClient } from '@/lib/supabase/server';
 
@@ -12,18 +11,12 @@ export default async function DashboardLayout({
   const { data: { user } } = await supabase.auth.getUser();
 
   return (
-    <div className="layout-grid">
+    <div className="relative min-h-screen bg-background pb-20">
       {user && <RealtimeSubscriber userId={user.id} />}
-      <Sidebar />
-      <main className="main-content">
-        <header className="flex justify-between items-center" style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
-          <h2 className="text-xl font-semibold" style={{ margin: 0 }}>Dashboard</h2>
-          <ThemeToggle />
-        </header>
-        <div style={{ padding: '1.5rem', maxWidth: '100%', overflowX: 'hidden' }}>
-          {children}
-        </div>
+      <main className="w-full h-full max-w-md mx-auto relative min-h-screen">
+        {children}
       </main>
+      <BottomNav />
     </div>
   );
 }

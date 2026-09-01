@@ -187,6 +187,188 @@ export class TransactionService {
 
         return true;
     }
+
+    /**
+     * Dapatkan transaksi terakhir user dalam waktu 30 menit terakhir
+     */
+    async getLastTransaction(userId: string) {
+        // Cari transaksi paling baru
+        const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+            .from('transactions')
+            .select('*, bank_accounts(id, balance, currency), transaction_categories(name)')
+            .eq('user_id', userId)
+            .gte('created_at', thirtyMinsAgo)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error || !data) return null;
+        return data;
+    }
+
+    /**
+     * Membatalkan (menghapus) transaksi terakhir yang baru saja diinput
+     */
+    async deleteLastTransaction(userId: string): Promise<any | null> {
+        const lastTx = await this.getLastTransaction(userId);
+        if (!lastTx) return null;
+
+        const account = Array.isArray(lastTx.bank_accounts) ? lastTx.bank_accounts[0] : lastTx.bank_accounts;
+        if (!account) return null;
+
+        // Kembalikan saldo
+        const currentBalance = Number((account as any).balance || 0);
+        const amount = Number(lastTx.amount);
+        const revertedBalance = lastTx.type === 'income' 
+            ? currentBalance - amount 
+            : currentBalance + amount;
+
+        // Update saldo
+        const { error: updateErr } = await supabase
+            .from('bank_accounts')
+            .update({ balance: revertedBalance })
+            .eq('id', (account as any).id);
+
+        if (updateErr) {
+            console.error("Gagal reverse balance:", updateErr);
+            return null;
+        }
+
+        // Hapus transaksi
+        const { error: delErr } = await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', lastTx.id);
+
+        if (delErr) {
+            console.error("Gagal hapus transaksi:", delErr);
+            return null;
+        }
+
+        return lastTx;
+    }
+
+    /**
+     * Menghapus riwayat transaksi spesifik berdasarkan nominal / deskripsi / kategori
+     */
+    async deleteMatchingTransaction(params: {
+        userId: string;
+        amount?: number | null;
+        description?: string | null;
+    }): Promise<any | null> {
+        let query = supabase
+            .from('transactions')
+            .select('*, bank_accounts(id, balance)')
+            .eq('user_id', params.userId)
+            .order('created_at', { ascending: false });
+
+        if (params.amount) {
+            query = query.eq('amount', params.amount);
+        }
+
+        const { data: txs, error } = await query;
+        if (error || !txs || txs.length === 0) return null;
+
+        // Ambil transaksi yang paling cocok/terbaru
+        const targetTx = txs[0];
+
+        // Kembalikan saldo akun
+        const account = Array.isArray(targetTx.bank_accounts) ? targetTx.bank_accounts[0] : targetTx.bank_accounts;
+        if (account) {
+            const currentBalance = Number((account as any).balance || 0);
+            const amount = Number(targetTx.amount);
+            const revertedBalance = targetTx.type === 'income' 
+                ? currentBalance - amount 
+                : currentBalance + amount;
+
+            await supabase
+                .from('bank_accounts')
+                .update({ balance: revertedBalance })
+                .eq('id', (account as any).id);
+        }
+
+        // Hapus transaksi
+        const { error: delErr } = await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', targetTx.id);
+
+        if (delErr) {
+            console.error("Gagal hapus transaksi terarah:", delErr);
+            return null;
+        }
+
+        return targetTx;
+    }
+
+    /**
+     * Mengupdate nominal transaksi terakhir yang baru saja diinput
+     */
+    async updateLastTransaction(userId: string, newAmount: number): Promise<any | null> {
+        const lastTx = await this.getLastTransaction(userId);
+        if (!lastTx) return null;
+
+        const account = Array.isArray(lastTx.bank_accounts) ? lastTx.bank_accounts[0] : lastTx.bank_accounts;
+        if (!account) return null;
+
+        const originalTxAmount = Number(lastTx.original_amount);
+        const originalCurrency = lastTx.currency || 'IDR';
+        
+        let finalNewAmount = newAmount;
+        let converted = false;
+        const accountCurrency = (account as any).currency || 'IDR';
+
+        if (originalCurrency.toUpperCase() !== accountCurrency.toUpperCase()) {
+            finalNewAmount = await currencyService.convert(newAmount, originalCurrency, accountCurrency);
+            converted = true;
+        }
+
+        // Hitung selisih untuk saldo
+        const currentBalance = Number((account as any).balance || 0);
+        const oldAmount = Number(lastTx.amount);
+
+        // Revert saldo lama
+        let intermediateBalance = lastTx.type === 'income' 
+            ? currentBalance - oldAmount 
+            : currentBalance + oldAmount;
+
+        // Apply saldo baru
+        let newBalance = lastTx.type === 'income'
+            ? intermediateBalance + finalNewAmount
+            : intermediateBalance - finalNewAmount;
+
+        // Update saldo
+        const { error: updateErr } = await supabase
+            .from('bank_accounts')
+            .update({ balance: newBalance })
+            .eq('id', (account as any).id);
+
+        if (updateErr) {
+            console.error("Gagal update balance:", updateErr);
+            return null;
+        }
+
+        // Update transaksi
+        const { error: txErr } = await supabase
+            .from('transactions')
+            .update({ 
+                amount: finalNewAmount, 
+                original_amount: newAmount 
+            })
+            .eq('id', lastTx.id);
+
+        if (txErr) {
+            console.error("Gagal update transaksi:", txErr);
+            return null;
+        }
+
+        return {
+            ...lastTx,
+            amount: finalNewAmount,
+            original_amount: newAmount
+        };
+    }
 }
 
 export const transactionService = new TransactionService();

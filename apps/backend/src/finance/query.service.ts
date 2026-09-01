@@ -77,7 +77,16 @@ export class QueryService {
             .order('day_of_week', { ascending: true })
             .order('start_time', { ascending: true });
 
+        const totalBankBalance = (accounts || []).reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
+        const totalGoalAllocation = (goals || []).reduce((sum, g) => sum + Number(g.current_amount || 0), 0);
+        const freeBalance = totalBankBalance - totalGoalAllocation;
+
         return {
+            summary: {
+                total_bank_balance: totalBankBalance,
+                total_allocated_to_goals: totalGoalAllocation,
+                free_balance_usable: freeBalance
+            },
             accounts: accounts || [],
             current_month: {
                 month,
@@ -143,8 +152,11 @@ ATURAN STRICT MENJAWAB (HARUS PATUH):
 3. **PISAHKAN TIAP KATEGORI DENGAN TEPAT 1 BARIS KOSONG (ENTER DUA KALI / \\n\\n)** agar ada jeda antar blok kategori.
    CONTOH FORMAT PERSIS:
    SALDO REKENING:
-   • Bank Jago: Rp 500.000
-   • Cash: Rp 200.000
+   • Total Saldo: Rp 5.000.000
+   • Teralokasi ke Tabungan: Rp 1.000.000
+   • Saldo Bebas (Bisa Dipakai): Rp 4.000.000
+   • Bank Jago: Rp 3.000.000
+   • Cash: Rp 2.000.000
 
    HUTANG:
    • Kakek: sisa Rp 6.000.000
@@ -166,7 +178,7 @@ ATURAN STRICT MENJAWAB (HARUS PATUH):
 6. **DILARANG BASA-BASI**: Tanpa salam pembuka ("Halo!", "Tentu!"), tanpa penutup ("Ada lagi?", "Semoga membantu!").
 7. **JANGAN POTONG DETAIL**: Tampilkan rincian angka lengkap.
 8. Jika data kategori tertentu kosong/tidak ada, lewati saja jangan dicantumkan.
-9. Jangan sebut nama "Aira".
+9. Jangan sebut nama "Karen".
 `;
 
             const reply = await askGemini(prompt);

@@ -2,6 +2,11 @@ import cron from 'node-cron';
 import { supabase } from '../supabase/supabase.client';
 import { agendaQueryService } from './agenda.query.service';
 import { sanitizeWhatsAppText } from '../whatsapp/connection';
+import { reminderService } from './reminder.service';
+import { routineService } from '../routine/routine.service';
+import { therapyService } from '../therapy/therapy.service';
+import { academicService } from '../academic/academic.service';
+import { quizService } from '../academic/quiz.service';
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -35,6 +40,23 @@ export class CronService {
         }, {
             timezone: 'Asia/Jakarta'
         });
+
+        // 4. Custom Reminders (Jalan setiap 1 menit)
+        cron.schedule('* * * * *', async () => {
+            const realNumbers = this.getRealPhoneNumbers();
+            await reminderService.processDueReminders(
+                (phone, text) => this.safeSendMessage(phone, text),
+                realNumbers
+            );
+        });
+
+        // 5. Story Medsos Check (Jalan jam 15:30 sore, Senin s/d Sabtu)
+        cron.schedule('30 15 * * 1-6', async () => {
+            console.log('⏰ Menjalankan Reminder Story Medsos 15:30...');
+            await this.runStoryReminder();
+        }, {
+            timezone: 'Asia/Jakarta'
+        });
     }
 
     /** Dipanggil ketika terjadi reconnect agar sock selalu up-to-date */
@@ -49,10 +71,22 @@ export class CronService {
      */
     private getRealPhoneNumbers(): string[] {
         const raw = process.env.WHATSAPP_PHONE_NUMBER || '';
-        return raw
-            .split(',')
+        const items = raw.split(',').map(n => n.trim()).filter(Boolean);
+
+        // Jika ada LID, prioritaskan LID agar pesan masuk ke thread aktif WhatsApp pengguna
+        const lid = items.find(n => {
+            const digits = n.replace(/[^0-9]/g, '');
+            return n.endsWith('@lid') || (digits.length >= 15 && !digits.startsWith('62') && !digits.startsWith('08'));
+        });
+
+        if (lid) {
+            const clean = lid.replace(/[^0-9]/g, '');
+            return [`${clean}@lid`];
+        }
+
+        return items
             .map(n => n.trim().replace(/[^0-9]/g, ''))
-            .filter(n => n.length > 0 && n.length <= 15); // Nomor HP max 15 digit (ITU-T E.164), LID jauh lebih panjang
+            .filter(n => n.length > 0 && n.length <= 15);
     }
 
     /**
@@ -67,13 +101,21 @@ export class CronService {
         }
 
         // Ambil HANYA nomor pertama sebelum koma (hindari concat nomor asli + LID)
-        // phone_number di DB tersimpan bisa "6287xxx" atau "6287xxx,252093xxx@lid"
         const rawFirst = phoneNumber.split(',')[0].trim();
-        // Ambil hanya bagian angka (strip @lid jika ada)
         const cleanNumber = rawFirst.replace(/[^0-9]/g, '');
         if (!cleanNumber) return false;
 
-        const jid = `${cleanNumber}@s.whatsapp.net`;
+        // Bedakan antara nomor HP (@s.whatsapp.net) dan WhatsApp LID (@lid)
+        let jid = '';
+        if (rawFirst.endsWith('@lid') || (cleanNumber.length >= 15 && !cleanNumber.startsWith('62') && !cleanNumber.startsWith('08'))) {
+            jid = `${cleanNumber}@lid`;
+        } else if (rawFirst.endsWith('@s.whatsapp.net')) {
+            jid = rawFirst;
+        } else {
+            const normalized = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : cleanNumber;
+            jid = `${normalized}@s.whatsapp.net`;
+        }
+
         console.log(`📤 Mengirim reminder ke JID: ${jid}`);
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -113,17 +155,86 @@ export class CronService {
             if (!users) return;
 
             for (const user of users) {
+                const context = await routineService.calculateDailyContext(user.user_id);
+                const therapySchedule = await therapyService.answerScheduleQuery(user.user_id, 'jadwal terapi hari ini');
+
                 const question = "Tolong kasih daily briefing: jadwalku hari ini apa aja dan tugas yang belum selesai. Buat format berbaris dengan bullet (•), pisahkan antar kategori dengan enter 1 kali saja, jangan gunakan emoji sama sekali, dan urutkan dari yang paling urgent.";
                 const briefing = await agendaQueryService.answerAgendaQuery(user.user_id, question);
-                if (briefing) {
-                    // Kirim ke semua nomor asli (non-LID) dari env
-                    for (const num of realNumbers) {
-                        await this.safeSendMessage(num, `DAILY BRIEFING\n\n${briefing}`);
+                
+                let fullMessage = `DAILY BRIEFING (${context.dayName.toUpperCase()})\n`;
+                if (context.isWorkDay) {
+                    fullMessage += `\nSERAGAM HARI INI:\n• ${context.uniform}\n`;
+                    if (context.department) {
+                        fullMessage += `\nKONTEN MEDSOS HARI INI:\n• Take 1 Video Story: Departemen ${context.department}\n`;
                     }
+                }
+
+                if (briefing) {
+                    fullMessage += `\n${briefing}\n`;
+                }
+
+                if (therapySchedule && !therapySchedule.includes('Belum ada jadwal')) {
+                    fullMessage += `\n${therapySchedule}\n`;
+                }
+
+                // Injeksi Kuis Harian dari Matkul Kemarin
+                try {
+                    const yesterdayClasses = await academicService.getYesterdayCourseSchedule(user.user_id);
+                    if (yesterdayClasses && yesterdayClasses.length > 0) {
+                        // Ambil soal dari matkul-matkul tersebut
+                        for (const course of yesterdayClasses) {
+                            const q = await quizService.getQuizQuestions(user.user_id, course.subject_name, 5);
+                            if (q && q.length > 0) {
+                                // Tandai soal yang akan dikirim ini already_asked = true
+                                await quizService.markQuestionsAsked(q.map(x => x.id));
+                                
+                                const currentWk = await academicService.getCurrentWeekNumber(user.user_id);
+                                const qMsg = quizService.formatQuizMessage(course.subject_name, q, currentWk);
+                                fullMessage += `\n---\n${qMsg}\n`;
+                                
+                                // Jika stok soal kurang dari 5 (misal sisa 2), reset soal matkul ini
+                                if (q.length < 5) {
+                                    await quizService.resetAskedFlags(user.user_id, course.subject_name);
+                                }
+                                break; // Hanya kirim 1 kuis per hari untuk matkul pertama yang ada soalnya (biar ngga kepanjangan)
+                            } else {
+                                // Jika tidak ada soal sisa, coba reset sekali, tapi tidak query ulang hari ini (besok baru keluar)
+                                await quizService.resetAskedFlags(user.user_id, course.subject_name);
+                            }
+                        }
+                    }
+                } catch (qErr) {
+                    console.error("Error cek kuis:", qErr);
+                }
+
+                for (const num of realNumbers) {
+                    await this.safeSendMessage(num, fullMessage.trim());
                 }
             }
         } catch (error) {
             console.error("Error saat Daily Briefing:", error);
+        }
+    }
+
+    private async runStoryReminder() {
+        try {
+            const realNumbers = this.getRealPhoneNumbers();
+            if (realNumbers.length === 0) return;
+
+            const { data: users } = await supabase.from('user_settings').select('user_id');
+            if (!users) return;
+
+            for (const user of users) {
+                const context = await routineService.calculateDailyContext(user.user_id);
+                if (context.isWorkDay && context.department) {
+                    const text = `PENGINGAT KONTEN MEDSOS\nHalo! Apakah sudah upload story video hari ini? (Hari ini giliran: Departemen *${context.department}*)`;
+                    for (const num of realNumbers) {
+                        await this.safeSendMessage(num, text);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error saat Story Reminder 15:30:', err);
         }
     }
 

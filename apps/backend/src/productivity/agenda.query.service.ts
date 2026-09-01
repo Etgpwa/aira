@@ -44,7 +44,7 @@ ATURAN STRICT MENJAWAB (HARUS PATUH):
 6. **DILARANG BASA-BASI**: Tanpa salam pembuka ("Halo", "Tentu") atau penutup ("Semoga lancar").
 7. **JANGAN POTONG DETAIL**: Sebutkan rincian lengkap tugas atau jadwal (judul/matkul, jam, tanggal, prioritas) sesuai data.
 8. Jika ditanya tugas/jadwal hari ini, filter data jadwal berdasarkan hari (0=Minggu, 1=Senin, dst) dan cocokkan dengan waktu saat ini.
-9. Jangan sebut nama "Aira".
+9. Jangan sebut nama "Karen".
 `;
 
         const reply = await askGemini(question, systemPrompt);

@@ -1,4 +1,4 @@
-# Asisten Pribadi (Aira) - Supabase Schema & Security
+# Asisten Pribadi (Karen) - Supabase Schema & Security
 
 Proyek ini menggunakan Supabase sebagai database utama (PostgreSQL) dan *Authentication provider*.
 
@@ -15,6 +15,12 @@ Semua tabel memiliki kolom `user_id` yang berelasi langsung dengan tabel `auth.u
 7. **`goals`**: Target tabungan virtual. Memiliki target nominal dan *progress* nominal terkumpul.
 8. **`tasks`**: Daftar tugas atau *to-do list* dengan status (`TODO`, `IN_PROGRESS`, `DONE`) dan tingkat prioritas.
 9. **`study_schedules`**: Jadwal kegiatan berulang mingguan berdasarkan hari (0-6) dan jam (mulai-selesai).
+10. **`reminders`**: Pengingat bebas (ad-hoc) dan pengingat terhubung tugas. Menyimpan pesan, relasi `task_id` (opsional), target waktu `remind_at`, dan status (`PENDING`, `SENT`, `CANCELLED`). RLS diaktifkan.
+11. **`work_routines`**: Konfigurasi seragam kerja harian (Senin-Sabtu), daftar 3 departemen medsos rolling (`Homeschool`, `TSD`, `Okupasi`), tanggal patokan rotasi (`rotation_anchor_date`), dan jam pengingat story (15:30 WIB). RLS diaktifkan.
+12. **`therapy_schedules`**: Matriks jadwal terapi anak untuk departemen `TSD` (lengkap dengan inisial terapis berdasarkan legenda warna) dan `OT` (nama anak per sesi waktu), periode jadwal, serta hari aktif (Senin-Sabtu). RLS diaktifkan.
+13. **`course_schedules`**: Jadwal kelas mingguan (matkul, hari, jam, ruangan, dosen). Diekstrak via Gemini Vision OCR (format Grid). RLS diaktifkan.
+14. **`course_weekly_targets`**: Target progres materi mingguan per mata kuliah, dapat ditandai selesai (`is_completed`). Terikat pada minggu ke-N perkuliahan. RLS diaktifkan.
+15. **`course_quiz_questions`**: Bank soal kuis otomatis hasil ekstraksi OCR (modul perkuliahan). Berisi teks soal, opsi A-D (jika MCQ), jawaban benar, dan tipe soal (MCQ/ESSAY). Menyimpan state `already_asked` untuk rotasi kuis harian. RLS diaktifkan.
 
 ## Row Level Security (RLS)
 

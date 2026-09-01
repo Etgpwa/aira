@@ -35,7 +35,7 @@ export class MemoryManager {
         if (history.length === 0) return '';
         
         return history.map(msg => 
-            `[${msg.role === 'user' ? 'User' : 'Aira'}]: ${msg.content}`
+            `[${msg.role === 'user' ? 'User' : 'Karen'}]: ${msg.content}`
         ).join('\n');
     }
     

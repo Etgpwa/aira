@@ -1,27 +1,29 @@
-# Asisten Pribadi (Aira) - AI Agent Integration
+# Asisten Pribadi (Karen) - AI Agent Integration
 
-Asisten Aira ditenagai oleh model AI generatif (Google Gemini) untuk memproses pesan WhatsApp dari pengguna (*Natural Language Processing*), mengekstrak niat (*intent*), dan mengubahnya menjadi *actionable data* terstruktur (JSON).
+Asisten Karen ditenagai oleh model AI generatif (Google Gemini) untuk memproses pesan WhatsApp dari pengguna (*Natural Language Processing*), mengekstrak niat (*intent*), dan mengubahnya menjadi *actionable data* terstruktur (JSON).
 
 ## 1. Mekanisme Deteksi Intent
 Pemrosesan pesan masuk terjadi di backend menggunakan komponen `intent.detector.ts` dan `gemini.client.ts`.
-- **System Prompt**: Menginstruksikan AI untuk berperan sebagai "Aira" (asisten pribadi). AI diberikan daftar intent valid, format waktu real-time, dan aturan ketat (tidak boleh menggunakan markdown backticks, tidak boleh pakai emoji, respon sangat singkat).
-- **Format Output**: AI diinstruksikan untuk selalu mengembalikan *response* dalam bentuk JSON murni yang sesuai dengan *interface* `IntentResult`.
+- **System Prompt**: Menginstruksikan AI untuk berperan sebagai "Karen" (asisten pribadi). AI diberikan daftar intent valid, format waktu real-time, dan aturan ketat (tidak boleh menggunakan markdown backticks, tidak boleh pakai emoji, respon sangat singkat).
+- **Format Output**: AI diinstruksikan untuk mengembalikan *response* dalam bentuk JSON murni dengan `interface IntentResult`. Sistem mendukung **Multi-Intent**, artinya jika user mengirim pesan panjang berisi banyak instruksi sekaligus, AI akan memecahnya menjadi sebuah array `intents`.
 
 Daftar Intent yang Didukung:
-- `ADD_EXPENSE`, `ADD_INCOME`
+- `ADD_EXPENSE`, `ADD_INCOME`, `UPDATE_LAST_TRANSACTION`, `CANCEL_LAST_TRANSACTION`, `DELETE_TRANSACTION`
 - `SET_BALANCE`, `SET_BUDGET`
 - `ADD_DEBT`, `ADD_RECEIVABLE`, `PAY_DEBT`
 - `CREATE_GOAL`, `TOPUP_GOAL`, `DELETE_GOAL`
 - `QUERY_FINANCE`
 - `ADD_TASK`, `COMPLETE_TASK`, `UPDATE_TASK_PROGRESS`, `DELETE_TASK`
 - `ADD_SCHEDULE`, `DELETE_SCHEDULE`, `QUERY_AGENDA`
+- `ADD_REMINDER`, `RESCHEDULE_REMINDER`, `DELETE_REMINDER`
+- `QUERY_ROUTINE`, `UPDATE_ROUTINE`
+- `QUERY_THERAPY_SCHEDULE`
 - `CHITCHAT`, `UNKNOWN`
 
 ## 2. OCR (Optical Character Recognition)
-Aira dilengkapi dengan kemampuan *Vision* untuk membaca gambar struk atau nota belanjaan. Jika pengguna mengirim gambar struk lewat WA:
-- Gambar diteruskan ke model Gemini Vision (`gemini-1.5-flash`).
-- Model menganalisis gambar untuk mengekstrak Total Belanja, Kategori, dan Daftar Item.
-- Hasil ekstraksi otomatis dicatat sebagai transaksi `ADD_EXPENSE` tanpa pengguna perlu mengetik rincian secara manual.
+Karen dilengkapi dengan kemampuan *Vision* Multimodal untuk membaca dokumen dan gambar:
+- **Struk Belanja**: Model Gemini Vision menganalisis gambar untuk mengekstrak Total Belanja, Kategori, dan Merchant, lalu otomatis mencatatnya sebagai transaksi `ADD_EXPENSE`.
+- **Jadwal Terapi (TSD & OT)**: Menganalisis matriks tabel jadwal terapi anak bulanan. Menghubungkan warna sel dengan legenda terapis pada tabel TSD (`[Anak]-[Inisial]`) serta membaca sesi nama anak pada tabel OT. Jadwal otomatis di-upsert ke database dan siap ditanyakan kapan saja ("jadwal hari ini", "sekarang siapa aja?").
 
 ## 3. Fitur Keandalan (Reliability)
 ### Rotasi API Key (Anti-Limit)
@@ -32,7 +34,7 @@ Untuk mencegah limit permintaan (Error 429) atau server overload (Error 503) dar
 
 ### Memory Manager (Riwayat Percakapan Pendek)
 - Agar bot memiliki memori konteks singkat, `memory.manager.ts` menyimpan riwayat percakapan (*history*) maksimum 4 percakapan terakhir berdasarkan ID Sesi (nomor HP).
-- Memori ini berguna agar Aira mengerti jika pesan terbaru merujuk/merevisi pesan sesaat sebelumnya.
+- Memori ini berguna agar Karen mengerti jika pesan terbaru merujuk/merevisi pesan sesaat sebelumnya.
 
 ## Aturan Wajib: Auto-update Dokumentasi
 

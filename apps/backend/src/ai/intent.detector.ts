@@ -2,8 +2,8 @@ import { askGemini } from './gemini.client';
 import { INTENT_SYSTEM_PROMPT } from './prompts/intent.prompt';
 import { memoryManager } from './memory.manager';
 
-export interface IntentResult {
-    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'UPDATE_TASK_PROGRESS' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'CHITCHAT' | 'UNKNOWN';
+export interface SingleIntent {
+    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'DELETE_DEBT' | 'DELETE_TRANSACTION' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'UPDATE_TASK_PROGRESS' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'ADD_REMINDER' | 'RESCHEDULE_REMINDER' | 'DELETE_REMINDER' | 'UPDATE_LAST_TRANSACTION' | 'CANCEL_LAST_TRANSACTION' | 'QUERY_ROUTINE' | 'UPDATE_ROUTINE' | 'QUERY_THERAPY_SCHEDULE' | 'CHITCHAT' | 'UNKNOWN';
     entities: {
         amount: number | null;
         currency: string | null;
@@ -19,6 +19,10 @@ export interface IntentResult {
         start_time?: string | null;
         end_time?: string | null;
     };
+}
+
+export interface IntentResult {
+    intents: SingleIntent[];
     reply: string;
 }
 
@@ -51,7 +55,7 @@ Jika user menyebutkan waktu/tanggal relatif (misal "besok jam 10", "nanti malam 
 
         const result: IntentResult = JSON.parse(cleanJsonStr);
 
-        // 4. Simpan balasan Aira ke memory
+        // 4. Simpan balasan Karen ke memory
         if (result.reply) {
             memoryManager.addMessage(sessionId, 'assistant', result.reply);
         }
@@ -60,8 +64,10 @@ Jika user menyebutkan waktu/tanggal relatif (misal "besok jam 10", "nanti malam 
     } catch (error) {
         console.error("Error mendeteksi intent:", error);
         return {
-            intent: 'UNKNOWN',
-            entities: { amount: null, currency: null, person_name: null, goal_name: null, category: null, account: null, description: null },
+            intents: [{
+                intent: 'UNKNOWN',
+                entities: { amount: null, currency: null, person_name: null, goal_name: null, category: null, account: null, description: null }
+            }],
             reply: 'Waduh, aku sedikit error nih pas mikir. Bisa ulangi lagi?'
         };
     }

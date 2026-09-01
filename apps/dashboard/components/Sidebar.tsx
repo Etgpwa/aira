@@ -28,7 +28,7 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-title">Aira</h1>
+        <h1 className="sidebar-title">Karen</h1>
       </div>
       
       <nav className="sidebar-nav">

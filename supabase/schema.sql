@@ -121,6 +121,44 @@ CREATE TABLE IF NOT EXISTS study_schedules (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Table: reminders
+CREATE TABLE IF NOT EXISTS reminders (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
+  message TEXT NOT NULL,
+  remind_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  status VARCHAR CHECK (status IN ('PENDING', 'SENT', 'CANCELLED')) DEFAULT 'PENDING',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Table: work_routines (Seragam harian & rotasi shift konten medsos)
+CREATE TABLE IF NOT EXISTS work_routines (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL UNIQUE,
+  uniform_schedule JSONB DEFAULT '{"1":"Batik","2":"Kemeja","3":"Bebas Rapi","4":"Batik","5":"Kaos Polo","6":"Bebas Rapi"}'::jsonb,
+  social_media_departments JSONB DEFAULT '["Homeschool", "TSD", "Okupasi"]'::jsonb,
+  rotation_anchor_date DATE DEFAULT '2026-08-31',
+  story_reminder_time TIME DEFAULT '15:30:00',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Table: therapy_schedules (Jadwal terapi TSD & OT hasil OCR visual)
+CREATE TABLE IF NOT EXISTS therapy_schedules (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  period_label VARCHAR NOT NULL,
+  department VARCHAR CHECK (department IN ('TSD', 'OT')) NOT NULL,
+  day_of_week INT NOT NULL CHECK (day_of_week BETWEEN 1 AND 6),
+  session_number INT NOT NULL,
+  time_range VARCHAR NOT NULL,
+  child_name VARCHAR NOT NULL,
+  therapist_initial VARCHAR,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- ==========================================
 -- 2. ROW LEVEL SECURITY (RLS)
 -- ==========================================
@@ -136,6 +174,9 @@ ALTER TABLE debts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_routines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE therapy_schedules ENABLE ROW LEVEL SECURITY;
 
 -- Policies for Authenticated Users
 CREATE POLICY "Users can only access their own settings" ON user_settings FOR ALL USING (auth.uid() = user_id);
@@ -147,6 +188,9 @@ CREATE POLICY "Users can only access their own debts" ON debts FOR ALL USING (au
 CREATE POLICY "Users can only access their own goals" ON goals FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can only access their own tasks" ON tasks FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can only access their own study schedules" ON study_schedules FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own reminders" ON reminders FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own work routines" ON work_routines FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own therapy schedules" ON therapy_schedules FOR ALL USING (auth.uid() = user_id);
 
 -- (Optional) Default Seed Data for Categories (bisa dijalankan via dashboard)
 -- Kita akan isi nanti ketika backend mulai jalan dan user mendaftar.

@@ -56,53 +56,103 @@ export class DebtService {
         personName: string;
         amount: number;
     }): Promise<PayDebtResult | null> {
-        // 1. Cari hutang/piutang aktif (UNPAID / PARTIAL) atas nama orang tsb
-        const { data: debt } = await supabase
+        // 1. Cari SEMUA hutang/piutang aktif (UNPAID / PARTIAL) atas nama orang tsb
+        const { data: debts } = await supabase
             .from('debts')
             .select('*')
             .eq('user_id', params.userId)
             .ilike('person_name', params.personName)
             .in('status', ['UNPAID', 'PARTIAL'])
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single();
+            .order('created_at', { ascending: true }); // Bayar yang paling lama dulu
 
-        if (!debt) {
+        if (!debts || debts.length === 0) {
             console.warn(`Tidak ditemukan catatan hutang/piutang aktif atas nama ${params.personName}`);
             return null;
         }
 
-        const currentRemaining = Number(debt.remaining_amount || 0);
-        let newRemaining = currentRemaining - params.amount;
-        let newStatus: 'PAID' | 'PARTIAL' = 'PARTIAL';
+        let remainingPayment = params.amount;
+        const debtType = debts[0].type;
+        
+        for (const debt of debts) {
+            if (remainingPayment <= 0) break;
 
-        if (newRemaining <= 0) {
-            newRemaining = 0;
-            newStatus = 'PAID';
+            const currentRemaining = Number(debt.remaining_amount || 0);
+            
+            if (currentRemaining <= remainingPayment) {
+                // Hutang ini lunas
+                remainingPayment -= currentRemaining;
+                await supabase
+                    .from('debts')
+                    .update({
+                        remaining_amount: 0,
+                        status: 'PAID',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', debt.id);
+            } else {
+                // Hutang ini dibayar sebagian
+                const newRemaining = currentRemaining - remainingPayment;
+                remainingPayment = 0;
+                await supabase
+                    .from('debts')
+                    .update({
+                        remaining_amount: newRemaining,
+                        status: 'PARTIAL',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', debt.id);
+            }
         }
 
-        // 2. Update catatan di database
-        const { error: updateErr } = await supabase
+        // Tampilkan sisa hutang keseluruhan orang tersebut
+        const { data: updatedDebts } = await supabase
             .from('debts')
-            .update({
-                remaining_amount: newRemaining,
-                status: newStatus,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', debt.id);
+            .select('remaining_amount')
+            .eq('user_id', params.userId)
+            .ilike('person_name', params.personName)
+            .in('status', ['UNPAID', 'PARTIAL']);
 
-        if (updateErr) {
-            console.error("Gagal update cicilan hutang:", updateErr);
-            throw updateErr;
-        }
+        const totalRemaining = (updatedDebts || []).reduce((sum, d) => sum + Number(d.remaining_amount || 0), 0);
 
         return {
-            personName: debt.person_name,
+            personName: debts[0].person_name,
             paidAmount: params.amount,
-            remainingAmount: newRemaining,
-            status: newStatus,
-            debtType: debt.type as 'PAYABLE' | 'RECEIVABLE'
+            remainingAmount: totalRemaining,
+            status: totalRemaining === 0 ? 'PAID' : 'PARTIAL',
+            debtType: debtType as 'PAYABLE' | 'RECEIVABLE'
         };
+    }
+
+    /**
+     * Menghapus (membatalkan) catatan hutang/piutang yang salah input
+     */
+    async deleteDebt(params: { userId: string, personName: string }) {
+        // Cari hutang/piutang terakhir atas nama orang tersebut yang masih aktif
+        const { data: debts, error } = await supabase
+            .from('debts')
+            .select('*')
+            .eq('user_id', params.userId)
+            .ilike('person_name', params.personName)
+            .in('status', ['UNPAID', 'PARTIAL'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error || !debts) {
+            return null;
+        }
+
+        const { error: delErr } = await supabase
+            .from('debts')
+            .delete()
+            .eq('id', debts.id);
+
+        if (delErr) {
+            console.error('Gagal menghapus hutang:', delErr);
+            return null;
+        }
+
+        return debts;
     }
 }
 

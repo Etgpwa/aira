@@ -6,13 +6,13 @@ import "./skeleton.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Aira - Asisten Pribadi",
+  title: "Karen - Asisten Pribadi",
   description: "Dashboard PWA untuk Asisten Pribadi",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Aira",
+    title: "Karen",
   },
   icons: {
     apple: "/icons/icon-192x192.png",

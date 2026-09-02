@@ -1,80 +1,92 @@
-
-function SkeletonRow() {
-    return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ flex: 1 }}>
-                <div className="skeleton sk-text" style={{ width: '60%', marginBottom: '0.4rem' }} />
-                <div className="skeleton sk-text-sm" style={{ width: '40%' }} />
-            </div>
-            <div className="skeleton sk-text" style={{ width: '80px' }} />
-        </div>
-    );
-}
-
-function SkeletonBudget() {
-    return (
-        <div style={{ marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <div className="skeleton sk-text-sm" style={{ width: '40%' }} />
-                <div className="skeleton sk-text-sm" style={{ width: '30%' }} />
-            </div>
-            <div className="skeleton sk-progress" style={{ width: '100%' }} />
-        </div>
-    );
-}
-
 export default function FinanceLoading() {
-    return (
+  return (
+    <div className="animate-pulse">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-8">
         <div>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div className="skeleton sk-text-2xl" style={{ width: '120px' }} />
-                <div className="skeleton sk-btn" />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-                {/* Kolom Kiri */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    {/* Rekening */}
-                    <div className="sk-card">
-                        <div className="skeleton sk-text-lg" style={{ width: '140px', marginBottom: '1rem' }} />
-                        {[1, 2].map(i => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '1px solid var(--border-color)' }}>
-                                <div className="skeleton sk-text" style={{ width: '40%' }} />
-                                <div className="skeleton sk-text" style={{ width: '30%' }} />
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Transaksi */}
-                    <div className="sk-card">
-                        <div className="skeleton sk-text-lg" style={{ width: '160px', marginBottom: '1rem' }} />
-                        {[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} />)}
-                    </div>
-                </div>
-
-                {/* Kolom Kanan */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    {/* Budget */}
-                    <div className="sk-card">
-                        <div className="skeleton sk-text-lg" style={{ width: '200px', marginBottom: '1rem' }} />
-                        {[1, 2, 3].map(i => <SkeletonBudget key={i} />)}
-                    </div>
-                    {/* Hutang */}
-                    <div className="sk-card">
-                        <div className="skeleton sk-text-lg" style={{ width: '140px', marginBottom: '1rem' }} />
-                        {[1, 2].map(i => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '0.75rem' }}>
-                                <div>
-                                    <div className="skeleton sk-text" style={{ width: '100px', marginBottom: '0.4rem' }} />
-                                    <div className="skeleton sk-text-sm" style={{ width: '70px' }} />
-                                </div>
-                                <div className="skeleton sk-text" style={{ width: '80px' }} />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
+          <div className="h-7 w-36 bg-surface-variant rounded-xl mb-2" />
+          <div className="h-4 w-52 bg-surface-variant/70 rounded-full" />
         </div>
-    );
+        <div className="w-10 h-10 rounded-full bg-surface-container" />
+      </div>
+
+      {/* 2-Column Grid */}
+      <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-8 lg:items-start">
+        {/* Left Column */}
+        <div>
+          {/* Total Kas & Rekening Card */}
+          <div className="bg-surface-bright border-2 border-surface-variant rounded-[24px] p-5 mb-6">
+            <div className="h-4 w-36 bg-surface-variant/70 rounded-full mb-2" />
+            <div className="h-9 w-60 bg-surface-variant rounded-xl mb-5" />
+
+            <div className="flex flex-col gap-2.5">
+              {[1, 2, 3].map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-3.5 bg-surface-container-low rounded-[16px]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-surface-container" />
+                    <div className="h-4 w-28 bg-surface-variant rounded-md" />
+                  </div>
+                  <div className="h-5 w-24 bg-surface-variant rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Hutang & Piutang Card */}
+          <div className="mb-6">
+            <div className="h-5 w-40 bg-surface-variant rounded-lg mb-4" />
+            <div className="flex flex-col gap-3">
+              {[1, 2].map((_, i) => (
+                <div key={i} className="bg-surface-bright p-4 rounded-[20px] border border-surface-variant flex justify-between items-center">
+                  <div className="flex-1">
+                    <div className="h-4 w-32 bg-surface-variant rounded-md mb-2" />
+                    <div className="h-3 w-20 bg-surface-variant/60 rounded-md" />
+                  </div>
+                  <div className="h-5 w-24 bg-surface-variant rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column */}
+        <div className="flex flex-col gap-6">
+          {/* Budget Card */}
+          <div className="bg-surface-bright rounded-[24px] p-5 border border-surface-variant">
+            <div className="h-5 w-36 bg-surface-variant rounded-lg mb-4" />
+            <div className="flex flex-col gap-4">
+              {[1, 2].map((_, i) => (
+                <div key={i}>
+                  <div className="flex justify-between mb-2">
+                    <div className="h-4 w-24 bg-surface-variant rounded-md" />
+                    <div className="h-4 w-12 bg-surface-variant rounded-md" />
+                  </div>
+                  <div className="h-2.5 w-full bg-surface-container rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Transaction History Card */}
+          <div className="bg-surface-bright rounded-[24px] p-4 border border-surface-variant">
+            <div className="h-5 w-40 bg-surface-variant rounded-lg mb-4" />
+            <div className="flex flex-col gap-2">
+              {[1, 2, 3, 4].map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-2.5 bg-surface-container-low rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-surface-container" />
+                    <div>
+                      <div className="h-4 w-28 bg-surface-variant rounded-md mb-1" />
+                      <div className="h-3 w-16 bg-surface-variant/60 rounded-md" />
+                    </div>
+                  </div>
+                  <div className="h-4 w-20 bg-surface-variant rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

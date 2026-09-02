@@ -68,6 +68,7 @@ export default function SideNav() {
                         <Link
                             key={item.href}
                             href={item.href}
+                            prefetch={true}
                             title={item.name}
                             className={`
                                 group relative flex items-center gap-3

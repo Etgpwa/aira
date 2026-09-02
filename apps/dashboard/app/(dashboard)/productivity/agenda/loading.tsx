@@ -1,36 +1,36 @@
-
-function SkeletonScheduleItem() {
-    return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border-color)' }}>
-            <div>
-                <div className="skeleton sk-text-sm" style={{ width: '60px', marginBottom: '0.3rem' }} />
-                <div className="skeleton sk-text" style={{ width: '90px' }} />
-            </div>
-            <div className="skeleton sk-icon" />
-        </div>
-    );
-}
-
-function SkeletonDayColumn() {
-    return (
-        <div className="sk-card">
-            <div className="skeleton sk-text-lg" style={{ width: '70px', marginBottom: '1rem', paddingBottom: '0.5rem' }} />
-            <SkeletonScheduleItem />
-            <SkeletonScheduleItem />
-        </div>
-    );
-}
-
-export default function ScheduleLoading() {
-    return (
+export default function AgendaLoading() {
+  return (
+    <div className="h-full flex flex-col animate-pulse px-4">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div className="skeleton sk-text-2xl" style={{ width: '170px' }} />
-                <div className="skeleton sk-btn" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem' }}>
-                {[1, 2, 3, 4, 5, 6, 7].map(i => <SkeletonDayColumn key={i} />)}
-            </div>
+          <div className="h-7 w-28 bg-surface-variant rounded-xl mb-2" />
+          <div className="h-4 w-48 bg-surface-variant/70 rounded-full" />
         </div>
-    );
+        <div className="w-10 h-10 rounded-full bg-surface-container" />
+      </div>
+
+      {/* Agenda 6 Hari Horizontal Skeleton */}
+      <div className="flex-1 overflow-x-auto flex gap-4 pb-4">
+        {[1, 2, 3, 4, 5, 6].map((dayIndex) => (
+          <div key={dayIndex} className="w-[280px] shrink-0 flex flex-col gap-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-surface-container" />
+                <div className="h-4 w-16 bg-surface-variant rounded-md" />
+              </div>
+              <div className="h-4 w-6 bg-surface-container rounded-full" />
+            </div>
+
+            {[1, 2].map((cardIndex) => (
+              <div key={cardIndex} className="bg-surface-bright border border-surface-variant rounded-[20px] p-4 h-[110px] flex flex-col justify-between">
+                <div className="h-4 w-24 bg-surface-container rounded-md" />
+                <div className="h-4 w-36 bg-surface-variant rounded-md" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

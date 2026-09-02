@@ -86,8 +86,8 @@ export default function AddGoalModal({ accounts, triggerButton }: AddGoalModalPr
             )}
 
             {isOpen && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
-                    <div className="bg-surface w-full max-w-lg rounded-t-[28px] sm:rounded-[28px] p-6 pb-10 sm:pb-6 shadow-2xl max-h-[90vh] overflow-y-auto border border-surface-variant">
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+                    <div className="bg-surface w-full max-w-lg rounded-t-[28px] sm:rounded-[28px] p-6 pb-28 sm:pb-6 shadow-2xl max-h-[88dvh] overflow-y-auto border border-surface-variant flex flex-col">
                         {/* Header Modal */}
                         <div className="flex justify-between items-center mb-5">
                             <div className="flex items-center gap-3">

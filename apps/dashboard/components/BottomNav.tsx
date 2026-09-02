@@ -20,8 +20,8 @@ export default function BottomNav() {
   if (pathname === '/login') return null;
 
   return (
-    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[400px] z-50 md:hidden">
-      <div className="bg-surface/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(24,26,42,0.12)] border border-white/40 rounded-full px-2 py-3 flex items-center justify-between">
+    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[400px] z-40 md:hidden">
+      <div className="bg-surface/90 backdrop-blur-xl shadow-[0_8px_32px_rgba(24,26,42,0.14)] border border-white/40 rounded-full px-2 py-3 flex items-center justify-between">
         {navItems.map((item) => {
           const Icon = item.icon;
           let isActive = false;
@@ -44,13 +44,14 @@ export default function BottomNav() {
             <Link 
               key={item.href} 
               href={item.href}
-              className={`relative flex flex-col items-center justify-center w-14 h-12 rounded-full transition-all duration-300 ${isActive ? 'text-primary' : 'text-outline hover:text-outline-variant hover:bg-surface-container'}`}
+              prefetch={true}
+              className={`relative flex flex-col items-center justify-center w-14 h-12 rounded-full transition-all duration-150 active:scale-90 select-none ${isActive ? 'text-primary font-bold' : 'text-outline hover:text-outline-variant hover:bg-surface-container'}`}
             >
               {isActive && (
-                <div className="absolute inset-0 bg-primary/10 rounded-full scale-100 transition-transform duration-300"></div>
+                <div className="absolute inset-0 bg-primary/10 rounded-full scale-100 transition-transform duration-200"></div>
               )}
-              <Icon className={`w-5 h-5 mb-1 ${isActive ? 'scale-110' : 'scale-100'} transition-transform duration-300`} strokeWidth={isActive ? 2.5 : 2} />
-              <span className={`text-[9px] font-medium tracking-wide ${isActive ? 'opacity-100' : 'opacity-70'}`}>{item.name}</span>
+              <Icon className={`w-5 h-5 mb-1 ${isActive ? 'scale-110' : 'scale-100'} transition-transform duration-200`} strokeWidth={isActive ? 2.5 : 2} />
+              <span className={`text-[9px] tracking-wide ${isActive ? 'opacity-100 font-extrabold' : 'opacity-70 font-medium'}`}>{item.name}</span>
             </Link>
           );
         })}

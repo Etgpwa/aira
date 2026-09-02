@@ -7,6 +7,8 @@
     "packages/*"
   ],
   "scripts": {
+    "vercel-build": "npm run build --workspace=dashboard",
+    "build": "npm run build --workspace=dashboard",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:dashboard": "npm run dev --workspace=dashboard",
     "build:backend": "npm run build --workspace=backend",

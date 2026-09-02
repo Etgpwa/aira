@@ -1,7 +1,7 @@
 {
-  "name": "Aira - Asisten Pribadi",
-  "short_name": "Aira",
-  "description": "Dashboard PWA untuk Asisten Pribadi Aira",
+  "name": "Karen - Asisten Pribadi",
+  "short_name": "Karen",
+  "description": "Dashboard PWA untuk Asisten Pribadi Karen",
   "id": "/",
   "start_url": "/",
   "scope": "/",

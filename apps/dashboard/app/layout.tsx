@@ -6,13 +6,13 @@ import "./skeleton.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Aira - Asisten Pribadi",
-  description: "Dashboard PWA untuk Asisten Pribadi Aira",
+  title: "Karen - Asisten Pribadi",
+  description: "Dashboard PWA untuk Asisten Pribadi Karen",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Aira",
+    title: "Karen",
   },
   icons: {
     icon: [
@@ -45,7 +45,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Aira" />
+        <meta name="apple-mobile-web-app-title" content="Karen" />
       </head>
       <body className={inter.className}>
         <PwaRegister />

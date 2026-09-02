@@ -164,3 +164,52 @@ export async function deleteCategory(id: string) {
     revalidatePath('/finance');
     return { success: true };
 }
+
+// ────────────────────────────────────────────────────────────────
+// 5. Ubah Kata Sandi (Change Password)
+// ────────────────────────────────────────────────────────────────
+export async function updatePassword(currentPassword: string, newPassword: string) {
+    try {
+        const supabase = createClient();
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user || !user.email) {
+            return { success: false, error: 'Sesi login tidak valid. Silakan muat ulang halaman.' };
+        }
+
+        if (!currentPassword) {
+            return { success: false, error: 'Kata sandi saat ini harus diisi.' };
+        }
+
+        if (!newPassword || newPassword.length < 6) {
+            return { success: false, error: 'Kata sandi baru minimal 6 karakter.' };
+        }
+
+        // 1. Verifikasi kecocokan kata sandi saat ini
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: currentPassword
+        });
+
+        if (signInError) {
+            return {
+                success: false,
+                error: signInError.message === 'Invalid login credentials'
+                    ? 'Kata sandi saat ini salah / tidak cocok.'
+                    : `Gagal verifikasi kata sandi: ${signInError.message}`
+            };
+        }
+
+        // 2. Perbarui ke kata sandi baru
+        const { error: updateError } = await supabase.auth.updateUser({
+            password: newPassword
+        });
+
+        if (updateError) {
+            return { success: false, error: updateError.message || 'Gagal memperbarui kata sandi.' };
+        }
+
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err?.message || 'Terjadi kesalahan sistem.' };
+    }
+}

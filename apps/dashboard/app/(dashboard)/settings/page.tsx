@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { Settings, ShieldCheck } from 'lucide-react';
 import ProfileSettingsForm from './components/ProfileSettingsForm';
+import ChangePasswordForm from './components/ChangePasswordForm';
 import RoutineSettingsForm from './components/RoutineSettingsForm';
 import AccountsManager from './components/AccountsManager';
 import CategoriesManager from './components/CategoriesManager';
@@ -43,13 +44,15 @@ export default async function SettingsPage() {
 
             {/* Layout 2-Kolom di Desktop / Single Kolom di Mobile */}
             <div className="flex flex-col lg:grid lg:grid-cols-2 gap-6 pb-6">
-                {/* Kolom 1: Profil Pengguna & Rutinitas Kerja */}
+                {/* Kolom 1: Profil Pengguna, Keamanan Kata Sandi, & Rutinitas Kerja */}
                 <div className="flex flex-col gap-6">
                     <ProfileSettingsForm
                         initialName={fullName}
                         email={email}
                         phoneNumber={phoneNumber}
                     />
+
+                    <ChangePasswordForm userEmail={email} />
 
                     <RoutineSettingsForm
                         initialUniforms={initialUniforms}

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { GraduationCap, Plus, Search, BookOpen, CheckCircle2, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import CreateModuleModal from './components/CreateModuleModal';
+import CourseScheduleSection from './components/CourseScheduleSection';
 
 export const revalidate = 0;
 
@@ -11,6 +12,7 @@ export default async function AcademicPage() {
   const userId = user?.id;
 
   let modules: any[] = [];
+  let allCourseSchedules: any[] = [];
   let todaySchedules: any[] = [];
 
   if (userId) {
@@ -28,12 +30,15 @@ export default async function AcademicPage() {
         .from('course_schedules')
         .select('*')
         .eq('user_id', userId)
-        .eq('day_of_week', yesterdayDay)
+        .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true }),
     ]);
 
-    if (modRes.data) modules = modRes.data;
-    if (schedRes.data) todaySchedules = schedRes.data;
+    if (modRes.data) {
+      modules = modRes.data;
+      allCourseSchedules = schedRes.data || [];
+      todaySchedules = allCourseSchedules.filter(s => s.day_of_week === yesterdayDay);
+    }
   }
 
   // Stats
@@ -56,9 +61,9 @@ export default async function AcademicPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface px-1 sm:px-2 space-y-6 pb-16">
       {/* Header */}
-      <header className="flex justify-between items-center mb-6">
+      <header className="flex justify-between items-center mb-6 px-1">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-on-surface">Akademik</h1>
           <p className="text-secondary text-sm mt-0.5">Bank Soal & Progress Materi</p>
@@ -93,30 +98,11 @@ export default async function AcademicPage() {
         </div>
       </section>
 
-      {/* Rekomendasi dari kuliah kemarin */}
-      {recommendations.length > 0 && (
-        <section className="mb-6">
-          <h3 className="text-sm font-bold text-secondary mb-3 uppercase tracking-wider">⚡ Review Kemarin</h3>
-          <div className="flex flex-col gap-2">
-            {recommendations.slice(0, 2).map(m => (
-              <Link
-                key={m.id}
-                href={`/academic/${m.id}`}
-                className="bg-amber-50 border border-amber-200 rounded-[16px] p-4 flex items-center justify-between active:scale-[0.98] transition-transform"
-              >
-                <div>
-                  <p className="text-xs font-bold text-amber-600 mb-0.5">{m.subject_name}</p>
-                  <p className="font-bold text-on-surface text-sm">{m.kb_title}</p>
-                  <p className="text-xs text-secondary">{m.module_title}</p>
-                </div>
-                <span className="text-xs bg-amber-500 text-white px-2 py-1 rounded-full font-bold whitespace-nowrap">
-                  Kerjakan
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Jadwal Belajar Aktif & Tunggakan Kuis */}
+      <CourseScheduleSection
+        schedules={allCourseSchedules}
+        modules={modules}
+      />
 
       {/* Tombol Buat KB Baru */}
       <section className="mb-6">

@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
-import { ArrowDownLeft, ArrowUpRight, Plus, Activity, Bell, Target, Settings } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Plus, Activity, Target, Settings } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import ReminderHubModal from '@/components/ReminderHubModal';
 
 // Lazy load FinanceChart (recharts) agar tidak masuk ke initial bundle
 const FinanceChart = dynamic(() => import('@/components/FinanceChart'), {
@@ -28,9 +29,11 @@ export default async function Home() {
   let pemasukanBulanIni = 0;
   let chartData: any[] = [];
   let recentTransactions: any[] = [];
+  let reminders: any[] = [];
+  let workRoutine: any = null;
 
   if (userId) {
-    const [accountsRes, transactionsRes, recentRes] = await Promise.all([
+    const [accountsRes, transactionsRes, recentRes, remindersRes, routineRes] = await Promise.all([
       supabase.from('bank_accounts').select('balance').eq('user_id', userId),
       supabase
         .from('transactions')
@@ -47,11 +50,23 @@ export default async function Home() {
         .select('id, amount, type, category, description, transaction_date')
         .eq('user_id', userId)
         .order('transaction_date', { ascending: false })
-        .limit(3)
+        .limit(3),
+      supabase
+        .from('reminders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('remind_at', { ascending: true }),
+      supabase
+        .from('work_routines')
+        .select('story_reminder_time')
+        .eq('user_id', userId)
+        .maybeSingle()
     ]);
 
     totalSaldo = accountsRes.data?.reduce((sum, acc) => sum + Number(acc.balance), 0) || 0;
     recentTransactions = recentRes.data || [];
+    reminders = remindersRes.data || [];
+    workRoutine = routineRes.data;
 
     // Chart Data 6 bulan
     for (let i = 5; i >= 0; i--) {
@@ -97,7 +112,7 @@ export default async function Home() {
       <header className="flex justify-between items-center mb-8">
         <div>
           <p className="text-secondary text-sm font-medium">{today}</p>
-          <h1 className="text-2xl font-extrabold tracking-tight mt-1 text-on-surface">Halo, {firstName} 👋</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight mt-1 text-on-surface">Halo, {firstName}</h1>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -107,10 +122,12 @@ export default async function Home() {
           >
             <Settings className="w-5 h-5" />
           </Link>
-          <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-primary relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-danger rounded-full border-2 border-surface"></span>
-          </div>
+          
+          {/* Modal Pusat Pengingat & Notifikasi (Icon Lonceng) */}
+          <ReminderHubModal
+            initialReminders={reminders}
+            routineInfo={workRoutine}
+          />
         </div>
       </header>
 
@@ -128,86 +145,83 @@ export default async function Home() {
                 <Plus className="w-4 h-4" /> Catat
               </Link>
               <Link href="/finance/goals" className="flex-1 bg-white/20 hover:bg-white/30 transition-colors text-white font-bold py-2.5 rounded-full flex items-center justify-center gap-1.5 text-sm backdrop-blur-sm">
-                <Target className="w-4 h-4" /> Goal
+                <Target className="w-4 h-4" /> Goals
               </Link>
             </div>
           </div>
         </div>
 
-        {/* Stats: Pemasukan & Pengeluaran */}
-        <div className="flex flex-col gap-3">
-          <div className="bg-surface-bright rounded-[20px] p-4 shadow-[0_8px_24px_rgba(24,26,42,0.06)] border border-surface-variant flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-mint-bg flex items-center justify-center text-mint-fg flex-shrink-0">
+        {/* Stats 2 Card (Pemasukan & Pengeluaran) */}
+        <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
+          <div className="bg-surface-bright border border-surface-variant p-4 rounded-[20px] shadow-[0_8px_24px_rgba(24,26,42,0.04)] flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-mint-bg flex items-center justify-center text-mint-fg shrink-0">
               <ArrowDownLeft className="w-5 h-5" />
             </div>
-            <div>
-              <p className="text-secondary text-xs font-medium">Pemasukan Bulan Ini</p>
-              <p className="text-base font-bold tabular-nums text-on-surface">{formatRupiah(pemasukanBulanIni)}</p>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-secondary uppercase tracking-wider">Masuk</p>
+              <p className="text-sm sm:text-base font-extrabold text-on-surface truncate tabular-nums">{formatRupiah(pemasukanBulanIni)}</p>
             </div>
           </div>
-          <div className="bg-surface-bright rounded-[20px] p-4 shadow-[0_8px_24px_rgba(24,26,42,0.06)] border border-surface-variant flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-peach-bg flex items-center justify-center text-peach-fg flex-shrink-0">
+          <div className="bg-surface-bright border border-surface-variant p-4 rounded-[20px] shadow-[0_8px_24px_rgba(24,26,42,0.04)] flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-peach-bg flex items-center justify-center text-peach-fg shrink-0">
               <ArrowUpRight className="w-5 h-5" />
             </div>
-            <div>
-              <p className="text-secondary text-xs font-medium">Pengeluaran Bulan Ini</p>
-              <p className="text-base font-bold tabular-nums text-on-surface">{formatRupiah(pengeluaranBulanIni)}</p>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-secondary uppercase tracking-wider">Keluar</p>
+              <p className="text-sm sm:text-base font-extrabold text-on-surface truncate tabular-nums">{formatRupiah(pengeluaranBulanIni)}</p>
             </div>
-          </div>
-          {/* Quick action extra — visible only md+ */}
-          <div className="hidden md:flex gap-2">
-            <Link href="/finance" className="flex-1 bg-surface-container hover:bg-surface-container-high transition-colors text-primary font-bold py-2.5 rounded-full flex items-center justify-center gap-1.5 text-sm">
-              <Plus className="w-4 h-4" /> Catat Transaksi
-            </Link>
           </div>
         </div>
       </div>
 
-      {/* Chart + Aktivitas (lg: side by side) */}
-      <div className="lg:grid lg:grid-cols-[1.5fr_1fr] lg:gap-6">
-        {/* Chart Kas */}
-        <section className="mb-8 lg:mb-0">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
-              <Activity className="w-5 h-5 text-primary" /> Arus Kas
-            </h3>
+      {/* Mid section: Chart + Activity (lg: 2 columns) */}
+      <div className="lg:grid lg:grid-cols-[1.5fr_1fr] lg:gap-8">
+        {/* Cash Flow Chart */}
+        <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-6 shadow-[0_8px_24px_rgba(24,26,42,0.04)] mb-6 lg:mb-0">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-base font-bold text-on-surface">Arus Kas</h3>
+              <p className="text-xs text-secondary mt-0.5">Tren 6 bulan terakhir</p>
+            </div>
+            <span className="text-xs font-bold text-primary bg-surface-container px-3 py-1 rounded-full">
+              6 Bulan
+            </span>
           </div>
-          <div className="bg-surface-bright rounded-[20px] p-5 shadow-[0_8px_24px_rgba(24,26,42,0.06)] border border-surface-variant">
-            <FinanceChart data={chartData} />
-          </div>
-        </section>
+          <FinanceChart data={chartData} />
+        </div>
 
-        {/* Aktivitas Terbaru */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold text-on-surface">Aktivitas Terakhir</h3>
-            <Link href="/finance" className="text-primary text-xs font-bold hover:underline">Lihat Semua</Link>
+        {/* Recent Transactions */}
+        <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-5 shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-bold text-on-surface">Transaksi Terakhir</h3>
+            <Link href="/finance" className="text-xs font-bold text-primary hover:underline">
+              Lihat Semua
+            </Link>
           </div>
-          <div className="bg-surface-bright rounded-[20px] shadow-[0_8px_24px_rgba(24,26,42,0.06)] border border-surface-variant overflow-hidden p-2">
-            {recentTransactions.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                {recentTransactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between p-3 bg-surface-container-low rounded-2xl">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'expense' ? 'bg-peach-bg text-peach-fg' : 'bg-mint-bg text-mint-fg'}`}>
-                        {tx.type === 'expense' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-on-surface line-clamp-1">{tx.category || tx.description || 'Transaksi'}</p>
-                        <p className="text-xs text-secondary mt-0.5">{format(new Date(tx.transaction_date), 'd MMM', { locale: id })}</p>
-                      </div>
-                    </div>
-                    <p className={`text-sm font-bold tabular-nums ${tx.type === 'expense' ? 'text-on-surface' : 'text-mint-fg'}`}>
-                      {tx.type === 'expense' ? '-' : '+'}{formatRupiah(Number(tx.amount))}
-                    </p>
-                  </div>
-                ))}
-              </div>
+
+          <div className="flex flex-col gap-3">
+            {recentTransactions.length === 0 ? (
+              <p className="text-secondary text-sm text-center py-6">Belum ada transaksi</p>
             ) : (
-              <p className="text-center text-secondary text-sm py-8">Belum ada aktivitas transaksi.</p>
+              recentTransactions.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-surface-container-low transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-mint-bg text-mint-fg' : 'bg-peach-bg text-peach-fg'}`}>
+                      {tx.type === 'income' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-on-surface">{tx.category || (tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</h4>
+                      <p className="text-[11px] text-secondary">{format(new Date(tx.transaction_date), 'dd MMM yyyy, HH:mm', { locale: id })}</p>
+                    </div>
+                  </div>
+                  <p className={`font-extrabold text-sm tabular-nums ${tx.type === 'income' ? 'text-mint-fg' : 'text-danger'}`}>
+                    {tx.type === 'income' ? '+' : '-'}{formatRupiah(Number(tx.amount))}
+                  </p>
+                </div>
+              ))
             )}
           </div>
-        </section>
+        </div>
       </div>
     </div>
   );

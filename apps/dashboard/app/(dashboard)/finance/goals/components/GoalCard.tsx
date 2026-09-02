@@ -68,8 +68,8 @@ export default function GoalCard({ goal, accounts }: GoalCardProps) {
                     {/* Header Card: Icon + Nama + Aksi Edit/Delete */}
                     <div className="flex items-start justify-between gap-3 mb-4">
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-12 h-12 bg-surface-container rounded-2xl flex items-center justify-center text-primary text-xl flex-shrink-0">
-                                🎯
+                            <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary flex-shrink-0">
+                                <Target className="w-6 h-6 text-primary" />
                             </div>
                             <div className="min-w-0">
                                 <h4 className="font-extrabold text-on-surface text-base truncate">{goal.name}</h4>

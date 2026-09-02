@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import KanbanBoard from '@/components/KanbanBoard';
-import { CheckSquare, Plus } from 'lucide-react';
+import AddTaskModal from './components/AddTaskModal';
 
 export const revalidate = 30;
 
@@ -22,16 +22,16 @@ export default async function TasksPage() {
   }
 
   return (
-    <div className="pt-8 pb-32 h-screen flex flex-col bg-surface overflow-hidden">
+    <div className="h-full flex flex-col bg-surface overflow-hidden">
       {/* Header */}
       <header className="px-6 flex justify-between items-center mb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-on-surface">Tugas</h1>
           <p className="text-secondary text-sm mt-1">Lacak pekerjaanmu (Kanban)</p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-primary relative">
-          <Plus className="w-5 h-5" />
-        </div>
+        
+        {/* Tombol Tambah Tugas di Header */}
+        <AddTaskModal />
       </header>
       
       {/* Kanban Board Container - Takes remaining height */}

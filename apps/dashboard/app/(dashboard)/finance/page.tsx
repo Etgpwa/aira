@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
-import { Plus, Wallet, Target, Clock, ArrowDownLeft, ArrowUpRight, CheckCircle2, ChevronRight } from 'lucide-react';
-import Link from 'next/link';
+import { Wallet, Target, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
+import AddTransactionModal from './components/AddTransactionModal';
+import TransactionHistoryList from './components/TransactionHistoryList';
 
 export const revalidate = 30;
 
@@ -12,6 +13,7 @@ export default async function FinancePage() {
   const userId = user?.id;
 
   let accounts: any[] = [];
+  let categories: any[] = [];
   let transactions: any[] = [];
   let debts: any[] = [];
   let budgetsList: any[] = [];
@@ -22,14 +24,15 @@ export default async function FinancePage() {
     const currentYear = new Date().getFullYear();
     const startOfMonth = new Date(currentYear, currentMonth - 1, 1).toISOString();
 
-    const [accsRes, txsRes, dbtsRes, bgtsRes] = await Promise.all([
+    const [accsRes, catsRes, txsRes, dbtsRes, bgtsRes] = await Promise.all([
       supabase.from('bank_accounts').select('*').eq('user_id', userId).order('balance', { ascending: false }),
+      supabase.from('transaction_categories').select('*').eq('user_id', userId).order('name', { ascending: true }),
       supabase
         .from('transactions')
         .select('*, bank_accounts (name), transaction_categories (name)')
         .eq('user_id', userId)
         .order('transaction_date', { ascending: false })
-        .limit(10),
+        .limit(15),
       supabase
         .from('debts')
         .select('*')
@@ -45,6 +48,7 @@ export default async function FinancePage() {
     ]);
 
     accounts = accsRes.data || [];
+    categories = catsRes.data || [];
     transactions = txsRes.data || [];
     debts = dbtsRes.data || [];
     
@@ -78,145 +82,134 @@ export default async function FinancePage() {
   };
 
   return (
-    <div className="p-6 pt-8 pb-32">
+    <div>
       {/* Header */}
       <header className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-on-surface">Keuangan</h1>
           <p className="text-secondary text-sm mt-1">Kelola aset dan riwayat transaksi</p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-primary relative">
-          <Plus className="w-5 h-5" />
-        </div>
+        
+        {/* Tombol Input Manual Transaksi */}
+        <AddTransactionModal accounts={accounts} categories={categories} />
       </header>
 
-      {/* Saldo Utama & Rekening */}
-      <section className="mb-8">
-        <div className="bg-surface-bright border-2 border-surface-variant rounded-[24px] p-5 shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
-          <p className="text-secondary text-sm font-medium mb-1">Total Kas & Rekening</p>
-          <h2 className="text-[32px] font-extrabold tracking-tight tabular-nums text-on-surface mb-5">{formatRupiah(totalBalance)}</h2>
-          
-          <div className="flex flex-col gap-3">
-            {accounts.map(acc => (
-              <div key={acc.id} className="flex justify-between items-center p-3 bg-surface-container-low rounded-[16px]">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
-                    <Wallet className="w-5 h-5" />
-                  </div>
-                  <span className="font-bold text-on-surface text-sm">{acc.name}</span>
-                </div>
-                <span className="font-bold text-on-surface tabular-nums">{formatRupiah(Number(acc.balance))}</span>
-              </div>
-            ))}
-            {accounts.length === 0 && <p className="text-sm text-secondary text-center py-2">Belum ada akun.</p>}
-          </div>
-        </div>
-      </section>
+      {/* Desktop: 2-column | Mobile: single column */}
+      <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-8 lg:items-start">
 
-      {/* Budget List */}
-      <section className="mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
-            <Target className="w-5 h-5 text-primary" /> Budget Bulan Ini
-          </h3>
-        </div>
-        <div className="bg-surface-bright rounded-[24px] p-5 border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
-          {budgetsList.length > 0 ? (
-            <div className="flex flex-col gap-5">
-              {budgetsList.map(bgt => {
-                const percent = Math.min(100, Math.round((bgt.spent / bgt.amount) * 100));
-                const isOver = bgt.spent > bgt.amount;
-                return (
-                  <div key={bgt.id}>
-                    <div className="flex justify-between items-end mb-2">
-                      <div>
-                        <p className="font-bold text-on-surface text-sm">{bgt.categoryName}</p>
-                        <p className="text-xs text-secondary mt-0.5">
-                          {formatRupiah(bgt.spent)} / {formatRupiah(bgt.amount)}
-                        </p>
+        {/* Kolom Kiri: Saldo, Rekening, Hutang & Piutang */}
+        <div>
+          {/* Saldo Utama & Rekening */}
+          <section className="mb-6">
+            <div className="bg-surface-bright border-2 border-surface-variant rounded-[24px] p-5 shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
+              <p className="text-secondary text-sm font-medium mb-1">Total Kas & Rekening</p>
+              <h2 className="text-[32px] font-extrabold tracking-tight tabular-nums text-on-surface mb-5">{formatRupiah(totalBalance)}</h2>
+              
+              <div className="flex flex-col gap-2.5">
+                {accounts.map(acc => (
+                  <div key={acc.id} className="flex items-center justify-between p-3.5 bg-surface-container-low/90 hover:bg-surface-container transition-colors rounded-[16px] gap-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary flex-shrink-0">
+                        <Wallet className="w-5 h-5" />
                       </div>
-                      <span className={`text-xs font-bold ${isOver ? 'text-danger' : 'text-primary'}`}>{percent}%</span>
+                      <span className="font-bold text-on-surface text-sm truncate">{acc.name}</span>
                     </div>
-                    <div className="w-full bg-surface-variant rounded-full h-2.5 overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${isOver ? 'bg-danger' : 'bg-primary'}`} 
-                        style={{ width: `${percent}%` }}
-                      ></div>
-                    </div>
+                    <span className="font-extrabold text-on-surface tabular-nums text-sm sm:text-base whitespace-nowrap flex-shrink-0 text-right">
+                      {formatRupiah(Number(acc.balance))}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-secondary text-center py-4">Belum ada budget yang ditetapkan.</p>
-          )}
-        </div>
-      </section>
-
-      {/* Hutang / Piutang */}
-      <section className="mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
-            <Clock className="w-5 h-5 text-primary" /> Hutang & Piutang
-          </h3>
-        </div>
-        <div className="flex flex-col gap-3">
-          {debts.map(debt => (
-            <div key={debt.id} className="bg-surface-bright p-4 rounded-[20px] border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)] flex justify-between items-center">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${debt.type === 'PAYABLE' ? 'bg-peach-bg text-peach-fg' : 'bg-mint-bg text-mint-fg'}`}>
-                    {debt.type === 'PAYABLE' ? 'Hutang' : 'Piutang'}
-                  </span>
-                  <span className="text-sm font-bold text-on-surface">{debt.person_name}</span>
-                </div>
-                <p className="text-xs text-secondary line-clamp-1">{debt.description || 'Tanpa catatan'}</p>
-              </div>
-              <div className="text-right">
-                <p className="font-bold text-on-surface tabular-nums mb-1">{formatRupiah(Number(debt.remaining_amount))}</p>
-                <div className="flex items-center gap-1 justify-end text-primary text-xs font-bold">
-                  Lunasi <ChevronRight className="w-3 h-3" />
-                </div>
+                ))}
+                {accounts.length === 0 && <p className="text-sm text-secondary text-center py-2">Belum ada akun.</p>}
               </div>
             </div>
-          ))}
-          {debts.length === 0 && (
-             <div className="bg-surface-bright p-5 rounded-[20px] border border-surface-variant text-center">
-               <CheckCircle2 className="w-8 h-8 text-mint-fg mx-auto mb-2" />
-               <p className="text-sm text-on-surface font-bold">Bebas Hutang</p>
-               <p className="text-xs text-secondary mt-1">Tidak ada hutang atau piutang aktif.</p>
-             </div>
-          )}
-        </div>
-      </section>
+          </section>
 
-      {/* Transaksi Terbaru */}
-      <section>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-on-surface">Riwayat Transaksi</h3>
-        </div>
-        <div className="bg-surface-bright rounded-[24px] border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)] p-2">
-          <div className="flex flex-col gap-1">
-            {transactions.map(tx => (
-              <div key={tx.id} className="flex items-center justify-between p-3 hover:bg-surface-container-lowest active:bg-surface-container transition-colors rounded-2xl">
-                <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${tx.type === 'expense' ? 'bg-peach-bg text-peach-fg' : 'bg-mint-bg text-mint-fg'}`}>
-                    {tx.type === 'expense' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+          {/* Hutang / Piutang */}
+          <section className="mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                <Clock className="w-5 h-5 text-primary" /> Hutang & Piutang
+              </h3>
+            </div>
+            <div className="flex flex-col gap-3">
+              {debts.map(debt => (
+                <div key={debt.id} className="bg-surface-bright p-4 rounded-[20px] border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)] flex justify-between items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${debt.type === 'PAYABLE' ? 'bg-peach-bg text-peach-fg' : 'bg-mint-bg text-mint-fg'}`}>
+                        {debt.type === 'PAYABLE' ? 'Hutang' : 'Piutang'}
+                      </span>
+                      <span className="text-sm font-bold text-on-surface truncate">{debt.person_name}</span>
+                    </div>
+                    <p className="text-xs text-secondary line-clamp-1">{debt.description || 'Tanpa catatan'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-on-surface line-clamp-1">{tx.transaction_categories?.name || tx.description || 'Lainnya'}</p>
-                    <p className="text-xs text-secondary mt-0.5">{format(new Date(tx.transaction_date), 'dd MMM yyyy', { locale: id })} • {tx.bank_accounts?.name}</p>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-bold text-on-surface tabular-nums mb-1">{formatRupiah(Number(debt.remaining_amount))}</p>
+                    <div className="flex items-center gap-1 justify-end text-primary text-xs font-bold">
+                      Lunasi <ChevronRight className="w-3 h-3" />
+                    </div>
                   </div>
                 </div>
-                <p className={`text-sm font-bold tabular-nums ${tx.type === 'expense' ? 'text-on-surface' : 'text-mint-fg'}`}>
-                  {tx.type === 'expense' ? '-' : '+'}{formatRupiah(Number(tx.amount))}
-                </p>
-              </div>
-            ))}
-            {transactions.length === 0 && <p className="text-center text-sm text-secondary py-6">Belum ada riwayat.</p>}
-          </div>
+              ))}
+              {debts.length === 0 && (
+                <div className="bg-surface-bright p-5 rounded-[20px] border border-surface-variant text-center">
+                  <CheckCircle2 className="w-8 h-8 text-mint-fg mx-auto mb-2" />
+                  <p className="text-sm text-on-surface font-bold">Bebas Hutang</p>
+                  <p className="text-xs text-secondary mt-1">Tidak ada hutang atau piutang aktif.</p>
+                </div>
+              )}
+            </div>
+          </section>
         </div>
-      </section>
+
+        {/* Kolom Kanan: Budget + Riwayat Transaksi */}
+        <div className="flex flex-col gap-6 lg:sticky lg:top-[68px]">
+          {/* Budget List */}
+          <section>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                <Target className="w-5 h-5 text-primary" /> Budget Bulan Ini
+              </h3>
+            </div>
+            <div className="bg-surface-bright rounded-[24px] p-5 border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
+              {budgetsList.length > 0 ? (
+                <div className="flex flex-col gap-5">
+                  {budgetsList.map(bgt => {
+                    const percent = Math.min(100, Math.round((bgt.spent / bgt.amount) * 100));
+                    const isOver = bgt.spent > bgt.amount;
+                    return (
+                      <div key={bgt.id}>
+                        <div className="flex justify-between items-end mb-2">
+                          <div>
+                            <p className="font-bold text-on-surface text-sm">{bgt.categoryName}</p>
+                            <p className="text-xs text-secondary mt-0.5">
+                              {formatRupiah(bgt.spent)} / {formatRupiah(bgt.amount)}
+                            </p>
+                          </div>
+                          <span className={`text-xs font-bold ${isOver ? 'text-danger' : 'text-primary'}`}>{percent}%</span>
+                        </div>
+                        <div className="w-full bg-surface-variant rounded-full h-2.5 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${isOver ? 'bg-danger' : 'bg-primary'}`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-secondary text-center py-4">Belum ada budget yang ditetapkan.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Riwayat Transaksi dengan Fitur Pembatalan / Rollback */}
+          <section>
+            <TransactionHistoryList transactions={transactions} />
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

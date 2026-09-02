@@ -3,10 +3,22 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-on-background antialiased selection:bg-primary selection:text-on-primary;
-    overscroll-behavior-y: none;
     -webkit-tap-highlight-color: transparent;
+    min-height: 100vh;
+  }
+
+  /* Hapus outline default browser pada link & button — pakai focus-visible saja */
+  a, button {
+    outline: none;
+  }
+  a:focus-visible, button:focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-primary rounded-sm;
   }
 }
 

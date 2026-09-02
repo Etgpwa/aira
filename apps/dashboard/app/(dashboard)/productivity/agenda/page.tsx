@@ -33,7 +33,7 @@ export default async function SchedulePage() {
   }
 
   return (
-    <div className="pt-8 pb-32 h-screen flex flex-col bg-surface overflow-hidden">
+    <div className="h-full flex flex-col bg-surface overflow-hidden">
       {/* Header */}
       <header className="px-6 flex justify-between items-center mb-6 shrink-0">
         <div>

@@ -20,11 +20,26 @@ export default function BottomNav() {
   if (pathname === '/login') return null;
 
   return (
-    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[400px] z-50">
+    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[400px] z-50 md:hidden">
       <div className="bg-surface/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(24,26,42,0.12)] border border-white/40 rounded-full px-2 py-3 flex items-center justify-between">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          let isActive = false;
+          if (item.href === '/') {
+            isActive = pathname === '/';
+          } else if (item.href === '/finance') {
+            isActive = pathname === '/finance';
+          } else if (item.href === '/finance/goals') {
+            isActive = pathname === '/finance/goals' || pathname.startsWith('/finance/goals/');
+          } else if (item.href === '/academic') {
+            isActive = pathname === '/academic' || pathname.startsWith('/academic/');
+          } else if (item.href === '/productivity/tasks') {
+            isActive = pathname === '/productivity/tasks' || pathname.startsWith('/productivity/tasks/');
+          } else if (item.href === '/productivity/agenda') {
+            isActive = pathname === '/productivity/agenda' || pathname.startsWith('/productivity/agenda/');
+          } else {
+            isActive = pathname === item.href;
+          }
           return (
             <Link 
               key={item.href} 

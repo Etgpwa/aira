@@ -1,6 +1,5 @@
 import { supabase } from '../supabase/supabase.client';
 import { askGeminiVision } from '../ai/gemini.client';
-import { differenceInCalendarWeeks, parseISO } from 'date-fns';
 
 export interface CourseSchedule {
   subject_name: string;
@@ -63,14 +62,14 @@ export class AcademicService {
             return 1; // Default minggu 1 jika belum diset
         }
 
-        const startDate = parseISO(data.semester_start_date);
+        const startDate = new Date(data.semester_start_date);
         const today = new Date();
         
         if (today < startDate) return 1;
 
-        // differenceInCalendarWeeks dimulai dari hari Minggu sebagai awal pekan
-        const diff = differenceInCalendarWeeks(today, startDate, { weekStartsOn: 1 });
-        return diff + 1; 
+        const diffTime = Math.abs(today.getTime() - startDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return Math.floor(diffDays / 7) + 1; 
     }
 
     /**

@@ -96,7 +96,7 @@ class GeminiQueue {
                     item.resolve(result);
                     success = true;
                 } catch (error: any) {
-                    const isRateLimitOrOverload = error?.status === 429 || error?.status === 503 || error?.status === 500 || 
+                    const isRateLimitOrOverload = error?.status === 429 || error?.status === 503 || error?.status === 500 ||
                         String(error).includes('429') || String(error).includes('503') || String(error).includes('500') ||
                         String(error).includes('exceeded your') || String(error).includes('overloaded') || String(error).includes('UNAVAILABLE');
 

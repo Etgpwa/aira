@@ -51,7 +51,7 @@ async function callGeminiWithRotation<T>(task: (ai: GoogleGenAI) => Promise<T>):
             const ai = new GoogleGenAI({ apiKey: key });
             return await task(ai);
         } catch (error: any) {
-            const isRateLimitOrOverload = error?.status === 429 || error?.status === 503 || error?.status === 500 || 
+            const isRateLimitOrOverload = error?.status === 429 || error?.status === 503 || error?.status === 500 ||
                 String(error).includes('429') || String(error).includes('503') || String(error).includes('500') ||
                 String(error).includes('exceeded your') || String(error).includes('overloaded') || String(error).includes('UNAVAILABLE');
 
@@ -122,10 +122,10 @@ export async function simulateKarenChat(
     const rules = rulesRes.data || [];
 
     // 2. Susun ringkasan konteks nyata
-    const accountsContext = accounts.length > 0 
+    const accountsContext = accounts.length > 0
         ? accounts.map(a => `${a.name}: Rp ${Number(a.balance).toLocaleString('id-ID')}`).join(', ')
         : 'Cash: Rp 0';
-    
+
     const goalsContext = goals.length > 0
         ? goals.map(g => `${g.name} (Terkumpul Rp ${Number(g.current_amount).toLocaleString('id-ID')} / Target Rp ${Number(g.target_amount).toLocaleString('id-ID')})`).join(', ')
         : 'Belum ada tabungan';
@@ -209,7 +209,7 @@ Analisis pesan di atas dan kembalikan JSON.
     // 5. Panggil Gemini AI
     const rawOutput = await callGeminiWithRotation(async (ai) => {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.5-flash',
             contents: userPrompt,
             config: {
                 systemInstruction: systemPrompt,
@@ -250,7 +250,7 @@ Analisis pesan di atas dan kembalikan JSON.
             simulatedImpacts.push({
                 type: 'Pengeluaran (Expense)',
                 description: `Mencatat pengeluaran '${ent.description || ent.category || 'Belanja'}' sebesar Rp ${nominal.toLocaleString('id-ID')}`,
-                details: targetAcc 
+                details: targetAcc
                     ? `[Simulasi Rekening ${targetAcc.name}]: Rp ${curBal.toLocaleString('id-ID')} → Rp ${newBal.toLocaleString('id-ID')} (-Rp ${nominal.toLocaleString('id-ID')})`
                     : `Rekening ${accName} berkurang Rp ${nominal.toLocaleString('id-ID')}`
             });
@@ -264,7 +264,7 @@ Analisis pesan di atas dan kembalikan JSON.
             simulatedImpacts.push({
                 type: 'Pemasukan (Income)',
                 description: `Mencatat pemasukan '${ent.description || 'Pemasukan'}' sebesar Rp ${nominal.toLocaleString('id-ID')}`,
-                details: targetAcc 
+                details: targetAcc
                     ? `[Simulasi Rekening ${targetAcc.name}]: Rp ${curBal.toLocaleString('id-ID')} → Rp ${newBal.toLocaleString('id-ID')} (+Rp ${nominal.toLocaleString('id-ID')})`
                     : `Rekening ${accName} bertambah Rp ${nominal.toLocaleString('id-ID')}`
             });

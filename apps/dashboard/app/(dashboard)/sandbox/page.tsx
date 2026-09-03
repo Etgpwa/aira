@@ -263,10 +263,10 @@ export default function SandboxPage() {
 
     return (
         <div className="
-            -mx-4 -mt-6 -mb-28 h-[100dvh]
+            fixed inset-0 z-30
             flex flex-col
             bg-background
-            md:mx-auto md:my-0 md:h-[calc(100vh-5rem)] md:max-w-4xl md:rounded-2xl md:border md:border-surface-variant md:shadow-lg
+            md:static md:mx-auto md:my-0 md:h-[calc(100vh-5rem)] md:max-w-4xl md:rounded-2xl md:border md:border-surface-variant md:shadow-lg
             overflow-hidden
         ">
             {/* ── Fixed Top Dock (Header & Slim Banner) ────────────────────────── */}
@@ -291,7 +291,7 @@ export default function SandboxPage() {
 
                         <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                                <h1 className="text-sm md:text-base font-bold text-on-surface truncate">Karen</h1>
+                                <h1 className="text-sm md:text-base font-bold text-on-surface whitespace-nowrap">Karen</h1>
                                 <span className="text-[9px] uppercase tracking-wider font-extrabold bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded-full flex-shrink-0">
                                     Dry Run
                                 </span>
@@ -484,9 +484,9 @@ export default function SandboxPage() {
             </div>
 
             {/* ── Fixed Bottom Dock (Suggestions & Input) ──────────────────────── */}
-            <div className="flex-none bg-surface/95 backdrop-blur-md border-t border-surface-variant px-3 py-2 pb-3 md:pb-2.5 z-20">
+            <div className="flex-none bg-surface/95 backdrop-blur-md border-t border-surface-variant px-3 py-2 pb-5 md:pb-2.5 z-20">
                 {/* Suggestions */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1.5 text-xs">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-1.5 text-xs">
                     <span className="text-[10px] text-secondary font-medium whitespace-nowrap pl-0.5">Uji:</span>
                     {[
                         'Beli bensin 30k pakai SeaBank',

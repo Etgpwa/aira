@@ -29,6 +29,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  interactiveWidget: "resizes-content",
 };
 
 import PwaRegister from "@/components/PwaRegister";

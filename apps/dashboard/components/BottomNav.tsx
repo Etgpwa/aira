@@ -16,8 +16,8 @@ export default function BottomNav() {
     { name: 'Kuliah', href: '/academic', icon: GraduationCap },
   ];
 
-  // Sembunyikan bottom nav di halaman login
-  if (pathname === '/login') return null;
+  // Sembunyikan bottom nav di halaman login dan simulator chat
+  if (pathname === '/login' || pathname === '/sandbox') return null;
 
   return (
     <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[400px] z-40 md:hidden">

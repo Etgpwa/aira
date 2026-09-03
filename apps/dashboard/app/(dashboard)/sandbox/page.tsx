@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { 
     Bot, Send, Sparkles, BookOpen, Trash2, CheckCircle2, 
     AlertCircle, RefreshCw, X, ChevronDown, ChevronUp, 
-    Layers, ArrowRight, ShieldCheck, PlusCircle, Check, RotateCcw
+    Layers, ArrowRight, ArrowLeft, ShieldCheck, PlusCircle, Check, RotateCcw
 } from 'lucide-react';
 import { 
     simulateKarenChat, saveTrainingRule, getTrainingRules, 
@@ -261,109 +262,130 @@ export default function SandboxPage() {
     };
 
     return (
-        <div className="flex flex-col h-[calc(100dvh-5rem)] md:h-[calc(100vh-2rem)] max-w-5xl mx-auto px-2 md:px-6 py-2">
-            {/* ── Top Header ────────────────────────────────────────── */}
-            <div className="flex items-center justify-between bg-surface/90 backdrop-blur-xl border border-surface-variant rounded-2xl px-4 py-3 shadow-sm mb-3">
-                <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-primary-light flex items-center justify-center text-white shadow-md">
-                            <Bot className="w-6 h-6" />
+        <div className="
+            -mx-4 -mt-6 -mb-28 h-[100dvh]
+            flex flex-col
+            bg-background
+            md:mx-auto md:my-0 md:h-[calc(100vh-5rem)] md:max-w-4xl md:rounded-2xl md:border md:border-surface-variant md:shadow-lg
+            overflow-hidden
+        ">
+            {/* ── Fixed Top Dock (Header & Slim Banner) ────────────────────────── */}
+            <div className="flex-none bg-surface/95 backdrop-blur-md border-b border-surface-variant z-20">
+                <div className="flex items-center justify-between px-3 md:px-5 py-2.5">
+                    {/* Left: Back (mobile), Avatar, Name, Status */}
+                    <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                        <Link 
+                            href="/"
+                            title="Kembali ke Dashboard"
+                            className="md:hidden p-1.5 -ml-1 text-secondary hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors flex-shrink-0"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </Link>
+
+                        <div className="relative flex-shrink-0">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-primary-light flex items-center justify-center text-white shadow-sm">
+                                <Bot className="w-5 h-5" />
+                            </div>
+                            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface rounded-full"></span>
                         </div>
-                        <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-surface rounded-full"></span>
+
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                                <h1 className="text-sm md:text-base font-bold text-on-surface truncate">Karen</h1>
+                                <span className="text-[9px] uppercase tracking-wider font-extrabold bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded-full flex-shrink-0">
+                                    Dry Run
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-emerald-600 font-semibold truncate flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                AI Simulator Aktif
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-base md:text-lg font-bold text-on-surface">Karen AI Simulator</h1>
-                            <span className="text-[10px] uppercase tracking-wider font-extrabold bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">
-                                Dry Run
-                            </span>
-                        </div>
-                        <p className="text-xs text-secondary hidden sm:block">
-                            Simulasi pesan aman & pelatihan intent instan
-                        </p>
+
+                    {/* Right: Actions (Reset Sesi, Aturan, Clear) */}
+                    <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                        <button
+                            onClick={handleManualResetContext}
+                            title="Reset ingatan percakapan sesi ini (mulai sesi bersih)"
+                            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-secondary hover:text-on-surface transition-all active:scale-95 flex items-center gap-1"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                            <span className="hidden sm:inline">Reset</span>
+                        </button>
+
+                        <button
+                            onClick={() => setIsRulesModalOpen(true)}
+                            className="px-2.5 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-on-surface transition-all active:scale-95 flex items-center gap-1"
+                        >
+                            <BookOpen className="w-3.5 h-3.5 text-primary" />
+                            <span>Aturan ({rules.length})</span>
+                        </button>
+
+                        <button
+                            onClick={handleClearChat}
+                            title="Bersihkan chat"
+                            className="p-2 rounded-xl text-secondary hover:text-error hover:bg-error/10 transition-all active:scale-95"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 md:gap-2">
-                    <button
-                        onClick={handleManualResetContext}
-                        title="Reset ingatan percakapan sesi ini (mulai sesi bersih)"
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-secondary hover:text-on-surface transition-all active:scale-95"
-                    >
-                        <RotateCcw className="w-3.5 h-3.5 text-primary" />
-                        <span className="hidden sm:inline">Reset Sesi</span>
-                    </button>
-
-                    <button
-                        onClick={() => setIsRulesModalOpen(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-on-surface transition-all active:scale-95"
-                    >
-                        <BookOpen className="w-4 h-4 text-primary" />
-                        <span>Aturan ({rules.length})</span>
-                    </button>
-
-                    <button
-                        onClick={handleClearChat}
-                        title="Bersihkan chat"
-                        className="p-2 rounded-xl text-secondary hover:text-error hover:bg-error/10 transition-all active:scale-95"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
-
-            {/* ── Banner Info Simulasi ──────────────────────────────── */}
-            <div className="bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 mb-3 flex items-start gap-2 text-xs text-on-surface-variant">
-                <ShieldCheck className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-                <div>
-                    <span className="font-semibold text-primary">Simulasi Aman & Clean State:</span> Percakapan ini menggunakan saldo & tugas aslimu sebagai patokan tanpa mengubah database nyata. Gunakan tombol <span className="font-bold text-primary">Promote to Memory</span> untuk mengunci aturan baru dan otomatis mereset ingatan sesi!
+                {/* Slim 1-line Info Bar */}
+                <div className="bg-primary/5 border-t border-primary/10 px-3 py-1 flex items-center justify-between text-[11px] text-on-surface-variant">
+                    <div className="flex items-center gap-1.5 truncate">
+                        <ShieldCheck className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                        <span className="truncate">Data asli aman • Bersifat dry-run</span>
+                    </div>
+                    <span className="text-[10px] text-primary font-bold whitespace-nowrap ml-2">Clean State</span>
                 </div>
             </div>
 
             {/* ── Toast Feedback ────────────────────────────────────── */}
             {feedbackToast && (
-                <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-on-surface text-inverse-on-surface px-4 py-2.5 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-bounce">
+                <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-on-surface text-inverse-on-surface px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-bounce">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>{feedbackToast}</span>
                 </div>
             )}
 
-            {/* ── Chat Messages Container ───────────────────────────── */}
-            <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 rounded-2xl bg-surface-container-lowest border border-surface-variant/60 shadow-inner">
+            {/* ── Chat Messages Container (The ONLY scrollable section) ───────── */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3 space-y-3 bg-surface-container-lowest">
                 {messages.map((msg) => {
                     // ── RENDER SYSTEM DIVIDER (CONTEXT BOUNDARY RESET) ──
                     if (msg.sender === 'system_divider') {
                         return (
-                            <div key={msg.id} className="py-2.5 flex flex-col items-center justify-center my-1 w-full animate-in fade-in">
+                            <div key={msg.id} className="py-2 flex flex-col items-center justify-center my-1 w-full animate-in fade-in">
                                 <div className="w-full flex items-center justify-center gap-2 relative">
                                     <div className="flex-1 border-t border-dashed border-primary/30"></div>
-                                    <div className="bg-surface px-3 py-1 rounded-full border border-primary/25 shadow-sm flex items-center gap-2 text-[11px] text-primary font-bold">
-                                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                    <div className="bg-surface px-3 py-1 rounded-full border border-primary/25 shadow-sm flex items-center gap-1.5 text-[11px] text-primary font-bold">
+                                        <Sparkles className="w-3 h-3 text-primary" />
                                         <span>Promote to Memory • Sesi Direset</span>
                                         <span className="text-[10px] text-secondary font-normal">({msg.timestamp})</span>
                                     </div>
                                     <div className="flex-1 border-t border-dashed border-primary/30"></div>
                                 </div>
                                 {msg.promotedRule && (
-                                    <div className="mt-2.5 bg-primary/5 border border-primary/20 rounded-xl px-3.5 py-2 text-center max-w-lg shadow-sm">
-                                        <p className="text-xs font-medium text-on-surface">
-                                            Pola Kalimat Baru: <span className="font-bold text-primary">"{msg.promotedRule.phrase}"</span>
+                                    <div className="mt-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 text-center max-w-md w-full shadow-sm">
+                                        <p className="text-xs font-medium text-on-surface break-words">
+                                            Pola Baru: <span className="font-bold text-primary">"{msg.promotedRule.phrase}"</span>
                                         </p>
                                         <div className="flex flex-wrap justify-center gap-1 mt-1">
                                             {msg.promotedRule.intents.map((it, idx) => (
-                                                <span key={idx} className="text-[10px] font-mono font-bold bg-primary text-white px-2 py-0.5 rounded-md">
+                                                <span key={idx} className="text-[10px] font-mono font-bold bg-primary text-white px-1.5 py-0.5 rounded">
                                                     {it}
                                                 </span>
                                             ))}
                                         </div>
                                         {msg.promotedRule.explanation && (
-                                            <p className="text-[11px] text-secondary mt-1 italic">
+                                            <p className="text-[11px] text-secondary mt-1 italic break-words">
                                                 "{msg.promotedRule.explanation}"
                                             </p>
                                         )}
-                                        <p className="text-[10px] text-emerald-600 font-semibold mt-1.5 flex items-center justify-center gap-1">
-                                            <ShieldCheck className="w-3.5 h-3.5" />
-                                            <span>Sesi di-reset: Pertanyaan berikutnya diuji dari kondisi memory bersih.</span>
+                                        <p className="text-[10px] text-emerald-600 font-semibold mt-1 flex items-center justify-center gap-1">
+                                            <ShieldCheck className="w-3 h-3" />
+                                            <span>Pertanyaan berikutnya diuji dari memory bersih.</span>
                                         </p>
                                     </div>
                                 )}
@@ -379,18 +401,18 @@ export default function SandboxPage() {
                             key={msg.id} 
                             className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-full`}
                         >
-                            <div className="flex items-end gap-2 max-w-[92%] sm:max-w-[80%]">
+                            <div className="flex items-end gap-2 max-w-[90%] sm:max-w-[78%]">
                                 {!isUser && (
-                                    <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 text-primary flex items-center justify-center flex-shrink-0 mb-1">
+                                    <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 text-primary flex items-center justify-center flex-shrink-0 mb-0.5">
                                         <Bot className="w-4 h-4" />
                                     </div>
                                 )}
 
                                 <div className={`
-                                    rounded-2xl px-4 py-2.5 shadow-sm text-sm
+                                    rounded-2xl px-3.5 py-2 shadow-sm text-sm break-words
                                     ${isUser 
-                                        ? 'bg-primary text-white rounded-br-none' 
-                                        : 'bg-surface border border-surface-variant text-on-surface rounded-bl-none'
+                                        ? 'bg-primary text-white rounded-tr-xs' 
+                                        : 'bg-surface border border-surface-variant text-on-surface rounded-tl-xs'
                                     }
                                 `}>
                                     <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
@@ -402,45 +424,45 @@ export default function SandboxPage() {
 
                             {/* ── Breakdown Intent & Simulasi untuk Balasan Karen ── */}
                             {!isUser && sim && (
-                                <div className="mt-2 ml-9 max-w-[90%] sm:max-w-[78%] w-full bg-surface border border-primary/20 rounded-xl p-3 shadow-sm text-xs space-y-2">
-                                    <div className="flex items-center justify-between border-b border-surface-variant pb-1.5">
-                                        <div className="flex items-center gap-1.5 text-primary font-bold">
-                                            <Sparkles className="w-3.5 h-3.5" />
-                                            <span>Deteksi Intent & Dampak Simulasi</span>
+                                <div className="mt-1.5 ml-9 max-w-[88%] sm:max-w-[76%] w-full bg-surface border border-primary/20 rounded-xl p-2.5 shadow-sm text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between border-b border-surface-variant pb-1">
+                                        <div className="flex items-center gap-1 text-primary font-bold text-[11px]">
+                                            <Sparkles className="w-3 h-3" />
+                                            <span>Deteksi Intent</span>
                                         </div>
                                         <button
                                             onClick={() => handleOpenCorrection(msg)}
-                                            className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-primary-dark bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded-md transition-colors"
+                                            className="flex items-center gap-1 text-[10px] font-bold text-primary hover:text-primary-dark bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded-md transition-colors"
                                         >
-                                            <RefreshCw className="w-3 h-3" />
-                                            <span>Koreksi Karen</span>
+                                            <RefreshCw className="w-2.5 h-2.5" />
+                                            <span>Koreksi</span>
                                         </button>
                                     </div>
 
                                     {/* Chip Intents */}
-                                    <div className="flex flex-wrap gap-1.5">
+                                    <div className="flex flex-wrap gap-1">
                                         {sim.intents.length > 0 ? (
                                             sim.intents.map((it, idx) => (
                                                 <span 
                                                     key={idx} 
-                                                    className="bg-primary/10 text-primary border border-primary/25 px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold"
+                                                    className="bg-primary/10 text-primary border border-primary/25 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold"
                                                 >
                                                     {it.intent}
                                                 </span>
                                             ))
                                         ) : (
-                                            <span className="text-secondary italic">Tidak ada intent khusus (Chitchat)</span>
+                                            <span className="text-secondary italic text-[11px]">Tidak ada intent khusus (Chitchat)</span>
                                         )}
                                     </div>
 
                                     {/* Dampak Simulasi */}
                                     {sim.simulatedImpacts.length > 0 && (
-                                        <div className="space-y-1.5 pt-1">
+                                        <div className="space-y-1 pt-0.5">
                                             {sim.simulatedImpacts.map((imp, idx) => (
-                                                <div key={idx} className="bg-surface-container/60 rounded-lg p-2 border border-surface-variant">
-                                                    <p className="font-semibold text-on-surface">{imp.type}: {imp.description}</p>
+                                                <div key={idx} className="bg-surface-container/60 rounded-lg p-1.5 border border-surface-variant">
+                                                    <p className="font-semibold text-[11px] text-on-surface">{imp.type}: {imp.description}</p>
                                                     {imp.details && (
-                                                        <p className="text-[11px] text-primary font-medium mt-0.5">{imp.details}</p>
+                                                        <p className="text-[10px] text-primary font-medium mt-0.5">{imp.details}</p>
                                                     )}
                                                 </div>
                                             ))}
@@ -454,59 +476,59 @@ export default function SandboxPage() {
 
                 {isLoading && (
                     <div className="flex items-center gap-2 text-secondary text-xs ml-9">
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
-                        <span>Karen sedang menganalisis pesan & mensimulasikan aksi...</span>
+                        <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                        <span>Menganalisis pesan...</span>
                     </div>
                 )}
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* ── Quick Prompt Suggestions ──────────────────────────── */}
-            <div className="flex items-center gap-1.5 overflow-x-auto py-2 no-scrollbar">
-                <span className="text-[11px] text-secondary font-medium whitespace-nowrap pl-1">Coba tes:</span>
-                {[
-                    'Beli bensin 30k pakai SeaBank',
-                    'A tuker cash 50k transfer ke BCA 50k',
-                    'Nanti jam 4 sore ingetin kerjain tugas web',
-                    'Cek saldo dan sisa tabungan'
-                ].map((prompt, idx) => (
-                    <button
-                        key={idx}
-                        onClick={() => handleSendMessage(prompt)}
-                        className="text-[11px] font-medium bg-surface hover:bg-surface-container border border-surface-variant text-secondary hover:text-on-surface rounded-full px-3 py-1 whitespace-nowrap transition-all active:scale-95"
-                    >
-                        {prompt}
-                    </button>
-                ))}
-            </div>
+            {/* ── Fixed Bottom Dock (Suggestions & Input) ──────────────────────── */}
+            <div className="flex-none bg-surface/95 backdrop-blur-md border-t border-surface-variant px-3 py-2 pb-3 md:pb-2.5 z-20">
+                {/* Suggestions */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1.5 text-xs">
+                    <span className="text-[10px] text-secondary font-medium whitespace-nowrap pl-0.5">Uji:</span>
+                    {[
+                        'Beli bensin 30k pakai SeaBank',
+                        'A tuker cash 50k transfer ke BCA 50k',
+                        'Nanti jam 4 sore ingetin kerjain tugas web',
+                        'Cek saldo dan sisa tabungan'
+                    ].map((prompt, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => handleSendMessage(prompt)}
+                            className="text-[10px] font-medium bg-surface-container hover:bg-surface-container-high border border-outline/10 text-secondary hover:text-on-surface rounded-full px-2.5 py-0.5 whitespace-nowrap transition-all active:scale-95 flex-shrink-0"
+                        >
+                            {prompt}
+                        </button>
+                    ))}
+                </div>
 
-            {/* ── Chat Input Area ───────────────────────────────────── */}
-            <form 
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    handleSendMessage();
-                }}
-                className="flex items-center gap-2 pt-1"
-            >
-                <div className="relative flex-1">
+                {/* Input Form */}
+                <form 
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSendMessage();
+                    }}
+                    className="flex items-center gap-2"
+                >
                     <input
                         type="text"
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         placeholder="Ketik instruksi chat di sini..."
-                        className="w-full bg-surface border border-surface-variant rounded-xl px-4 py-3 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all shadow-sm"
+                        className="flex-1 bg-surface-container border border-surface-variant/80 rounded-full px-4 py-2.5 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all shadow-inner"
                         disabled={isLoading}
                     />
-                </div>
-                <button
-                    type="submit"
-                    disabled={!inputText.trim() || isLoading}
-                    className="h-11 px-5 rounded-xl bg-primary text-white font-semibold flex items-center justify-center gap-1.5 hover:bg-primary-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md active:scale-95"
-                >
-                    <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline text-xs">Kirim</span>
-                </button>
-            </form>
+                    <button
+                        type="submit"
+                        disabled={!inputText.trim() || isLoading}
+                        className="w-10 h-10 rounded-full bg-primary text-white font-semibold flex items-center justify-center hover:bg-primary-dark transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md active:scale-95 flex-shrink-0"
+                    >
+                        <Send className="w-4 h-4" />
+                    </button>
+                </form>
+            </div>
 
             {/* ── MODAL KOREKSI / LATIH KAREN ───────────────────────── */}
             {correctionTarget && (

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
     Bot, Send, Sparkles, BookOpen, Trash2, CheckCircle2, 
     AlertCircle, RefreshCw, X, ChevronDown, ChevronUp, 
-    Layers, ArrowRight, ShieldCheck, PlusCircle, Check
+    Layers, ArrowRight, ShieldCheck, PlusCircle, Check, RotateCcw
 } from 'lucide-react';
 import { 
     simulateKarenChat, saveTrainingRule, getTrainingRules, 
@@ -14,10 +14,15 @@ import {
 
 interface ChatMessage {
     id: string;
-    sender: 'user' | 'assistant';
+    sender: 'user' | 'assistant' | 'system_divider';
     text: string;
     timestamp: string;
     simulation?: SimulationResult;
+    promotedRule?: {
+        phrase: string;
+        intents: string[];
+        explanation?: string;
+    };
 }
 
 const COMMON_INTENTS = [
@@ -88,11 +93,22 @@ export default function SandboxPage() {
         setIsLoading(true);
 
         try {
-            // Siapkan riwayat chat pendek untuk konteks
-            const history = updatedMessages.slice(-6).map(m => ({
-                sender: m.sender,
-                text: m.text
-            }));
+            // ── CONTEXT BOUNDARY RESET LOGIC ─────────────────────────────
+            // Cari divider terakhir (Promote to Memory / Reset Sesi)
+            const lastDividerIndex = updatedMessages.map(m => m.sender).lastIndexOf('system_divider');
+            const activeHistoryMessages = lastDividerIndex >= 0 
+                ? updatedMessages.slice(lastDividerIndex + 1) 
+                : updatedMessages;
+
+            // Ambil pesan sebelum userMsg saat ini (maksimal 6 percakapan dalam sesi aktif)
+            const history = activeHistoryMessages
+                .slice(0, -1)
+                .filter(m => m.sender === 'user' || m.sender === 'assistant')
+                .slice(-6)
+                .map(m => ({
+                    sender: m.sender as 'user' | 'assistant',
+                    text: m.text
+                }));
 
             const result = await simulateKarenChat(textToSend.trim(), history);
 
@@ -133,6 +149,7 @@ export default function SandboxPage() {
         setExplanationText('');
     };
 
+    // ── PROMOTE TO MEMORY: Kunci Aturan & Reset Boundary Konteks ──
     const handleSaveCorrection = async () => {
         if (!correctionTarget || selectedIntents.length === 0) return;
         setIsSavingRule(true);
@@ -151,23 +168,53 @@ export default function SandboxPage() {
 
             await loadRules();
             setCorrectionTarget(null);
-            showToast('Aturan baru berhasil dipelajari! Otomatis aktif di WhatsApp.');
+            showToast('Aturan dipromosikan ke Memory! Sesi ingatan di-reset.');
 
-            // Beri pesan asisten konfirmasi di dalam chat
-            setMessages(prev => [
-                ...prev,
-                {
-                    id: Date.now().toString(),
-                    sender: 'assistant',
-                    text: `Terima kasih atas koreksinya! Aku sudah menyimpan aturan untuk pola kalimat: "${correctionTarget.userText}". Sekarang aku tahu maksudnya adalah [${selectedIntents.join(', ')}].`,
-                    timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+            // 1. Sisipkan Garis Batas Konteks (Context Boundary Divider)
+            const dividerMsg: ChatMessage = {
+                id: `divider-${Date.now()}`,
+                sender: 'system_divider',
+                text: `Aturan Dipromosikan ke Memory: "${correctionTarget.userText}"`,
+                timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                promotedRule: {
+                    phrase: correctionTarget.userText,
+                    intents: selectedIntents,
+                    explanation: explanationText.trim() || undefined
                 }
-            ]);
+            };
+
+            // 2. Beri pesan asisten konfirmasi di awal sesi baru
+            const assistantAckMsg: ChatMessage = {
+                id: `ack-${Date.now() + 1}`,
+                sender: 'assistant',
+                text: `Aturan baru berhasil dipelajari! Aku sudah mereset ingatan sesi percakapan sebelumnya. Silakan uji aku dengan pertanyaan baru untuk memvalidasi pemahamanku.`,
+                timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+            };
+
+            setMessages(prev => [...prev, dividerMsg, assistantAckMsg]);
         } catch (err: any) {
-            alert(`Gagal menyimpan aturan: ${err.message}`);
+            alert(`Gagal mempromosikan aturan: ${err.message}`);
         } finally {
             setIsSavingRule(false);
         }
+    };
+
+    // ── RESET MANUAL KONTEKS SESI ──
+    const handleManualResetContext = () => {
+        const dividerMsg: ChatMessage = {
+            id: `divider-${Date.now()}`,
+            sender: 'system_divider',
+            text: 'Konteks Sesi Direset Secara Manual',
+            timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+        };
+        const ackMsg: ChatMessage = {
+            id: `ack-${Date.now() + 1}`,
+            sender: 'assistant',
+            text: 'Ingatan percakapan sesi sebelumnya telah di-reset. Riwayat di atas tetap disimpan sebagai referensi visual. Silakan mulai pertanyaan baru!',
+            timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, dividerMsg, ackMsg]);
+        showToast('Konteks sesi telah di-reset ke kondisi bersih');
     };
 
     const handleToggleRule = async (ruleId: string, currentStatus: boolean) => {
@@ -237,7 +284,16 @@ export default function SandboxPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 md:gap-2">
+                    <button
+                        onClick={handleManualResetContext}
+                        title="Reset ingatan percakapan sesi ini (mulai sesi bersih)"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-secondary hover:text-on-surface transition-all active:scale-95"
+                    >
+                        <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                        <span className="hidden sm:inline">Reset Sesi</span>
+                    </button>
+
                     <button
                         onClick={() => setIsRulesModalOpen(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-on-surface transition-all active:scale-95"
@@ -260,7 +316,7 @@ export default function SandboxPage() {
             <div className="bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 mb-3 flex items-start gap-2 text-xs text-on-surface-variant">
                 <ShieldCheck className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                 <div>
-                    <span className="font-semibold text-primary">Simulasi Aman:</span> Percakapan ini menggunakan saldo & tugas aslimu sebagai patokan, namun tidak mengubah database nyata. Jika deteksi intent keliru, klik tombol <span className="font-bold underline text-primary">Koreksi</span> untuk melatih Karen!
+                    <span className="font-semibold text-primary">Simulasi Aman & Clean State:</span> Percakapan ini menggunakan saldo & tugas aslimu sebagai patokan tanpa mengubah database nyata. Gunakan tombol <span className="font-bold text-primary">Promote to Memory</span> untuk mengunci aturan baru dan otomatis mereset ingatan sesi!
                 </div>
             </div>
 
@@ -275,6 +331,46 @@ export default function SandboxPage() {
             {/* ── Chat Messages Container ───────────────────────────── */}
             <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 rounded-2xl bg-surface-container-lowest border border-surface-variant/60 shadow-inner">
                 {messages.map((msg) => {
+                    // ── RENDER SYSTEM DIVIDER (CONTEXT BOUNDARY RESET) ──
+                    if (msg.sender === 'system_divider') {
+                        return (
+                            <div key={msg.id} className="py-2.5 flex flex-col items-center justify-center my-1 w-full animate-in fade-in">
+                                <div className="w-full flex items-center justify-center gap-2 relative">
+                                    <div className="flex-1 border-t border-dashed border-primary/30"></div>
+                                    <div className="bg-surface px-3 py-1 rounded-full border border-primary/25 shadow-sm flex items-center gap-2 text-[11px] text-primary font-bold">
+                                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                        <span>Promote to Memory • Sesi Direset</span>
+                                        <span className="text-[10px] text-secondary font-normal">({msg.timestamp})</span>
+                                    </div>
+                                    <div className="flex-1 border-t border-dashed border-primary/30"></div>
+                                </div>
+                                {msg.promotedRule && (
+                                    <div className="mt-2.5 bg-primary/5 border border-primary/20 rounded-xl px-3.5 py-2 text-center max-w-lg shadow-sm">
+                                        <p className="text-xs font-medium text-on-surface">
+                                            Pola Kalimat Baru: <span className="font-bold text-primary">"{msg.promotedRule.phrase}"</span>
+                                        </p>
+                                        <div className="flex flex-wrap justify-center gap-1 mt-1">
+                                            {msg.promotedRule.intents.map((it, idx) => (
+                                                <span key={idx} className="text-[10px] font-mono font-bold bg-primary text-white px-2 py-0.5 rounded-md">
+                                                    {it}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        {msg.promotedRule.explanation && (
+                                            <p className="text-[11px] text-secondary mt-1 italic">
+                                                "{msg.promotedRule.explanation}"
+                                            </p>
+                                        )}
+                                        <p className="text-[10px] text-emerald-600 font-semibold mt-1.5 flex items-center justify-center gap-1">
+                                            <ShieldCheck className="w-3.5 h-3.5" />
+                                            <span>Sesi di-reset: Pertanyaan berikutnya diuji dari kondisi memory bersih.</span>
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+
                     const isUser = msg.sender === 'user';
                     const sim = msg.simulation;
 
@@ -419,7 +515,10 @@ export default function SandboxPage() {
                         <div className="flex items-center justify-between border-b border-surface-variant pb-3">
                             <div className="flex items-center gap-2">
                                 <Sparkles className="w-5 h-5 text-primary" />
-                                <h3 className="font-bold text-on-surface text-base">Latih Pemahaman Karen</h3>
+                                <div>
+                                    <h3 className="font-bold text-on-surface text-base">Promote to Memory & Pelatihan</h3>
+                                    <p className="text-[11px] text-secondary">Kunci aturan baru & reset ingatan sesi untuk pengujian murni</p>
+                                </div>
                             </div>
                             <button 
                                 onClick={() => setCorrectionTarget(null)}
@@ -491,17 +590,17 @@ export default function SandboxPage() {
                                 type="button"
                                 onClick={handleSaveCorrection}
                                 disabled={isSavingRule || selectedIntents.length === 0}
-                                className="px-5 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-dark transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-md active:scale-95"
+                                className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-dark transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-md active:scale-95"
                             >
                                 {isSavingRule ? (
                                     <>
                                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Menyimpan...</span>
+                                        <span>Memproses...</span>
                                     </>
                                 ) : (
                                     <>
-                                        <Check className="w-3.5 h-3.5" />
-                                        <span>Simpan & Terapkan ke WhatsApp</span>
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        <span>Promote to Memory & Reset Sesi</span>
                                     </>
                                 )}
                             </button>

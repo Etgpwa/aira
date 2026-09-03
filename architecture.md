@@ -27,12 +27,15 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 - **Routing**:
   - `/login`: Autentikasi.
   - `/`: Overview.
-  - `/finance`: Manajemen Keuangan & Hutang.
-  - `/goals`: Target Tabungan.
-  - `/tasks`: Papan Kanban Tugas.
-  - `/schedule`: Jadwal Kegiatan.
+  - `/academic`: Modul Akademik, Kuis & Rekap Mingguan.
+  - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
+  - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
 
-## State Management & Sinkronisasi
+## Dynamic AI Training & Prompt Injection
+Untuk mempermudah pelatihan AI tanpa mengedit kode:
+1. **Interactive Sandbox**: Sesi chat di `/sandbox` membaca konteks riil pengguna (saldo rekening, tugas, tabungan) sebagai patokan simulasi, namun bersifat *Dry-Run* tanpa memodifikasi database nyata.
+2. **Dynamic Prompt Injection**: Hasil koreksi pengguna disimpan ke tabel `ai_training_rules`. Fungsi `getDynamicSystemPrompt()` di backend WhatsApp (`intent.detector.ts`) dan PWA Simulator secara otomatis menarik aturan aktif ini dan menyuntikkannya ke dalam System Prompt Gemini secara *real-time*.
+
 Aplikasi menggunakan kombinasi *Server Components* dan *Real-time WebSockets* untuk mengelola *state*:
 1. **Server-side Fetching**: Data diambil langsung dari Supabase di sisi server sebelum dikirim ke *client*.
 2. **RealtimeSubscriber**: Komponen React di *client-side* yang *subscribe* ke *event* `postgres_changes` Supabase. Jika ada perubahan data di tabel yang relevan (misal diubah oleh bot WA), komponen ini akan memicu `router.refresh()` secara *debounced* untuk memperbarui UI tanpa mengganggu *state* interaktif lainnya.

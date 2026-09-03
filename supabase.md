@@ -22,6 +22,7 @@ Semua tabel memiliki kolom `user_id` yang berelasi langsung dengan tabel `auth.u
 14. **`course_weekly_targets`**: Target progres materi mingguan per mata kuliah, dapat ditandai selesai (`is_completed`). Terikat pada minggu ke-N perkuliahan. RLS diaktifkan.
 15. **`course_quiz_questions`**: Bank soal kuis otomatis hasil ekstraksi OCR (modul perkuliahan). Berisi teks soal, opsi A-D (jika MCQ), jawaban benar, dan tipe soal (MCQ/ESSAY). Menyimpan state `already_asked` untuk rotasi kuis harian. Terhubung ke `course_modules` via `module_id`. RLS diaktifkan.
 16. **`course_modules`**: Kontainer materi akademik terstruktur per Mata Kuliah → Modul → KB (Kegiatan Belajar). Menyimpan `best_score` dan status `is_completed` yang di-update otomatis ketika kuis diselesaikan di PWA. RLS diaktifkan.
+17. **`ai_training_rules`**: Aturan kustom dan contoh *few-shot* intent AI yang diajarkan pengguna secara interaktif dari PWA Sandbox (`/sandbox`). Berisi `sample_phrase`, `expected_intents` (JSONB), `explanation_rule`, dan status `is_active`. Otomatis disuntikkan ke prompt Bot WhatsApp dan Simulator. RLS diaktifkan.
 
 ## Row Level Security (RLS)
 

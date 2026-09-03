@@ -192,5 +192,21 @@ CREATE POLICY "Users can only access their own reminders" ON reminders FOR ALL U
 CREATE POLICY "Users can only access their own work routines" ON work_routines FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can only access their own therapy schedules" ON therapy_schedules FOR ALL USING (auth.uid() = user_id);
 
+-- 17. Tabel ai_training_rules (Dynamic AI Intent Rules & Few-Shot Learning)
+CREATE TABLE IF NOT EXISTS ai_training_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    sample_phrase TEXT NOT NULL,
+    expected_intents JSONB NOT NULL,
+    explanation_rule TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_training_rules_user_active ON ai_training_rules (user_id, is_active);
+ALTER TABLE ai_training_rules ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can only access their own ai training rules" ON ai_training_rules FOR ALL USING (auth.uid() = user_id);
+
 -- (Optional) Default Seed Data for Categories (bisa dijalankan via dashboard)
 -- Kita akan isi nanti ketika backend mulai jalan dan user mendaftar.
+

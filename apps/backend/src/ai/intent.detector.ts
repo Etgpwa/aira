@@ -1,6 +1,7 @@
 import { askGemini } from './gemini.client';
 import { INTENT_SYSTEM_PROMPT } from './prompts/intent.prompt';
 import { memoryManager } from './memory.manager';
+import { supabase } from '../supabase/supabase.client';
 
 export interface SingleIntent {
     intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'DELETE_DEBT' | 'DELETE_TRANSACTION' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'UPDATE_TASK_PROGRESS' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'ADD_REMINDER' | 'RESCHEDULE_REMINDER' | 'DELETE_REMINDER' | 'UPDATE_LAST_TRANSACTION' | 'CANCEL_LAST_TRANSACTION' | 'QUERY_ROUTINE' | 'UPDATE_ROUTINE' | 'QUERY_THERAPY_SCHEDULE' | 'SET_SEMESTER_START' | 'QUERY_COURSE_SCHEDULE' | 'ADD_COURSE_TARGET' | 'COMPLETE_COURSE_WEEK' | 'QUERY_COURSE_PROGRESS' | 'CHITCHAT' | 'UNKNOWN';
@@ -28,6 +29,39 @@ export interface IntentResult {
     reply: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Dynamic System Prompt: Injeksi Aturan Pelatihan / Few-Shot dari Supabase
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getDynamicSystemPrompt(): Promise<string> {
+    try {
+        const { data: rules, error } = await supabase
+            .from('ai_training_rules')
+            .select('sample_phrase, expected_intents, explanation_rule')
+            .eq('is_active', true)
+            .order('created_at', { ascending: true });
+
+        if (error || !rules || rules.length === 0) {
+            return INTENT_SYSTEM_PROMPT;
+        }
+
+        let customSection = `\n\n=== ATURAN PELATIHAN KUSTOM DARI USER (PRIORITAS TINGGI) ===\n`;
+        customSection += `Berikut adalah aturan dan contoh intent spesifik yang telah dipelajari dari koreksi user sebelumnya. Jika pesan user mirip atau mengikuti pola ini, WAJIB ikuti format intent dan ekstraksi ini:\n`;
+
+        rules.forEach((r, idx) => {
+            customSection += `${idx + 1}. Contoh Perintah: "${r.sample_phrase}"\n`;
+            if (r.explanation_rule) {
+                customSection += `   Aturan/Penjelasan: ${r.explanation_rule}\n`;
+            }
+            customSection += `   Expected Intents: ${JSON.stringify(r.expected_intents)}\n`;
+        });
+        customSection += `============================================================\n`;
+
+        return INTENT_SYSTEM_PROMPT + customSection;
+    } catch {
+        return INTENT_SYSTEM_PROMPT;
+    }
+}
+
 export const detectIntent = async (sessionId: string, text: string): Promise<IntentResult> => {
     try {
         // 1. Simpan pesan user ke memory
@@ -50,7 +84,8 @@ Analisis pesan terakhir dari User di atas dan berikan balasan dalam format JSON 
 Jika user menyebutkan waktu/tanggal relatif (misal "besok jam 10", "nanti malam jam 23:40", "lusa"), konversikan ke "due_date" format ISO 8601 dengan timezone offset WIB (+07:00) (misal: "2026-08-25T23:40:00+07:00") berdasarkan WAKTU REAL-TIME SAAT INI di atas.
 `;
 
-        const responseText = await askGemini(finalPrompt, INTENT_SYSTEM_PROMPT);
+        const systemPrompt = await getDynamicSystemPrompt();
+        const responseText = await askGemini(finalPrompt, systemPrompt);
 
         // Membersihkan jika output dari Gemini ada markdown block `json ... `
         const cleanJsonStr = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();

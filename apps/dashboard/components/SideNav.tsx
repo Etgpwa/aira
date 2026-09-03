@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Wallet, Target, CheckSquare, Calendar, GraduationCap, Settings } from 'lucide-react';
+import { LayoutDashboard, Wallet, Target, CheckSquare, Calendar, GraduationCap, Sparkles, Settings } from 'lucide-react';
 
 const navItems = [
     { name: 'Home', href: '/', icon: LayoutDashboard },
@@ -11,6 +11,7 @@ const navItems = [
     { name: 'Tugas', href: '/productivity/tasks', icon: CheckSquare },
     { name: 'Jadwal', href: '/productivity/agenda', icon: Calendar },
     { name: 'Kuliah', href: '/academic', icon: GraduationCap },
+    { name: 'AI Simulator', href: '/sandbox', icon: Sparkles },
     { name: 'Pengaturan', href: '/settings', icon: Settings },
 ];
 

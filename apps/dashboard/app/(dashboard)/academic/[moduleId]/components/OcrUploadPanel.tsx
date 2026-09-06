@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useTransition, useRef } from 'react';
+import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp, FolderOpen, Image as ImageIcon } from 'lucide-react';
 import { ocrSoal, ocrKunciJawaban, applyKunciToModule, saveQuestions } from '../../actions';
 import ManualQuizInput from '../../components/ManualQuizInput';
 import { useRouter } from 'next/navigation';
@@ -13,19 +13,67 @@ interface OcrUploadPanelProps {
 
 export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanelProps) {
     const [activePanel, setActivePanel] = useState<'none' | 'soal' | 'kunci' | 'manual'>('none');
+    const [activePickerModal, setActivePickerModal] = useState<'soal' | 'kunci' | null>(null);
     const [isPending, startTransition] = useTransition();
     const [previewQuestions, setPreviewQuestions] = useState<any[] | null>(null);
     const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
     const [status, setStatus] = useState<string>('');
     const router = useRouter();
 
-    const handleFileToBase64 = (file: File): Promise<{ base64: string; mimeType: string }> => {
+    const cameraSoalInputRef = useRef<HTMLInputElement>(null);
+    const folderSoalInputRef = useRef<HTMLInputElement>(null);
+    const cameraKunciInputRef = useRef<HTMLInputElement>(null);
+    const folderKunciInputRef = useRef<HTMLInputElement>(null);
+
+    /**
+     * Konversi file gambar ke base64 dengan kompresi client-side (maks 1600px, JPEG 0.85)
+     * Menjamin screenshot beresolusi tinggi maupun foto kamera 50MP tidak melebih batas Next.js
+     * serta mempercepat upload ke server.
+     */
+    const handleFileToBase64 = async (file: File): Promise<{ base64: string; mimeType: string }> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => {
-                const result = reader.result as string;
-                const base64 = result.split(',')[1];
-                resolve({ base64, mimeType: file.type });
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const maxDim = 1600;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    if (!ctx) {
+                        const rawBase64 = (e.target?.result as string).split(',')[1];
+                        return resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
+                    }
+
+                    // Background putih untuk format transparan (PNG screenshot)
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const base64 = dataUrl.split(',')[1];
+                    resolve({ base64, mimeType: 'image/jpeg' });
+                };
+                img.onerror = () => {
+                    const rawBase64 = (e.target?.result as string).split(',')[1];
+                    resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
+                };
+                img.src = e.target?.result as string;
             };
             reader.onerror = reject;
             reader.readAsDataURL(file);
@@ -43,7 +91,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                 const result = await ocrSoal(base64, mimeType, subjectName);
                 setPreviewQuestions(result);
                 setStatus(result.length > 0 ? `Ditemukan ${result.length} soal. Periksa & simpan di bawah.` : 'Tidak ada soal terdeteksi.');
-            } catch (err) {
+            } catch (err: any) {
                 setStatus('Gagal scan soal. Coba lagi.');
                 console.error(err);
             }
@@ -63,7 +111,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                 setKunciResult(result);
                 const count = Object.keys(result).length;
                 setStatus(count > 0 ? `Kunci jawaban untuk ${count} soal terdeteksi. Konfirmasi untuk diterapkan.` : 'Kunci jawaban tidak terbaca.');
-            } catch (err) {
+            } catch (err: any) {
                 setStatus('Gagal scan kunci. Coba lagi.');
                 console.error(err);
             }
@@ -105,21 +153,62 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
 
     return (
         <div className="flex flex-col gap-3">
+            {/* Hidden Input Files */}
+            {/* Soal: Kamera Langsung */}
+            <input
+                ref={cameraSoalInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleScanSoal}
+            />
+            {/* Soal: Buka Folder / Galeri */}
+            <input
+                ref={folderSoalInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleScanSoal}
+            />
+
+            {/* Kunci: Kamera Langsung */}
+            <input
+                ref={cameraKunciInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleScanKunci}
+            />
+            {/* Kunci: Buka Folder / Galeri */}
+            <input
+                ref={folderKunciInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleScanKunci}
+            />
+
             {/* Action Buttons Row */}
             <div className="grid grid-cols-3 gap-2">
-                {/* Scan Soal */}
-                <label className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 cursor-pointer transition-all active:scale-95 ${activePanel === 'soal' ? 'border-primary bg-primary/5' : 'border-surface-variant bg-surface-bright'}`}>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanSoal} />
+                {/* Scan Soal Button */}
+                <button
+                    onClick={() => setActivePickerModal('soal')}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 transition-all active:scale-95 ${activePickerModal === 'soal' ? 'border-primary bg-primary/10' : 'border-surface-variant bg-surface-bright'}`}
+                >
                     <Camera className="w-5 h-5 text-primary" />
                     <span className="text-[11px] font-bold text-on-surface text-center leading-tight">Scan Soal</span>
-                </label>
+                </button>
 
-                {/* Scan Kunci */}
-                <label className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 cursor-pointer transition-all active:scale-95 ${activePanel === 'kunci' ? 'border-amber-400 bg-amber-50' : 'border-surface-variant bg-surface-bright'}`}>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanKunci} />
+                {/* Scan Kunci Button */}
+                <button
+                    onClick={() => setActivePickerModal('kunci')}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 transition-all active:scale-95 ${activePickerModal === 'kunci' ? 'border-amber-400 bg-amber-50' : 'border-surface-variant bg-surface-bright'}`}
+                >
                     <Key className="w-5 h-5 text-amber-500" />
                     <span className="text-[11px] font-bold text-on-surface text-center leading-tight">Scan Kunci</span>
-                </label>
+                </button>
 
                 {/* Input Manual */}
                 <button
@@ -130,6 +219,82 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                     <span className="text-[11px] font-bold text-on-surface text-center leading-tight">Manual</span>
                 </button>
             </div>
+
+            {/* Modal Pilih Sumber Gambar (Kamera vs Folder/Galeri) */}
+            {activePickerModal && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-5 w-full max-w-sm shadow-2xl flex flex-col gap-4">
+                        <div className="flex items-center justify-between pb-2 border-b border-surface-variant">
+                            <div className="flex items-center gap-2">
+                                {activePickerModal === 'soal' ? (
+                                    <Camera className="w-5 h-5 text-primary" />
+                                ) : (
+                                    <Key className="w-5 h-5 text-amber-500" />
+                                )}
+                                <h3 className="text-base font-bold text-on-surface">
+                                    {activePickerModal === 'soal' ? 'Pilih Sumber Soal' : 'Pilih Sumber Kunci'}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setActivePickerModal(null)}
+                                className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-secondary hover:text-on-surface"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <p className="text-xs text-secondary leading-relaxed">
+                            {activePickerModal === 'soal'
+                                ? 'Ambil foto langsung halaman modul/buku atau buka folder galeri untuk memilih screenshot digital.'
+                                : 'Ambil foto lembar kunci jawaban atau pilih gambar screenshot dari galeri.'}
+                        </p>
+                        <div className="grid grid-cols-1 gap-2.5">
+                            {/* Opsi 1: Kamera Langsung */}
+                            <button
+                                onClick={() => {
+                                    const modalType = activePickerModal;
+                                    setActivePickerModal(null);
+                                    if (modalType === 'soal') {
+                                        cameraSoalInputRef.current?.click();
+                                    } else {
+                                        cameraKunciInputRef.current?.click();
+                                    }
+                                }}
+                                className="flex items-center gap-3.5 p-3.5 rounded-[16px] bg-primary/10 hover:bg-primary/15 border border-primary/30 text-primary font-bold text-sm transition-all active:scale-[0.98]"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center flex-shrink-0">
+                                    <Camera className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <div className="text-sm font-bold text-on-surface">Ambil Foto (Kamera)</div>
+                                    <div className="text-xs text-secondary font-normal">Buka kamera belakang langsung</div>
+                                </div>
+                            </button>
+
+                            {/* Opsi 2: Buka Folder / Galeri */}
+                            <button
+                                onClick={() => {
+                                    const modalType = activePickerModal;
+                                    setActivePickerModal(null);
+                                    if (modalType === 'soal') {
+                                        folderSoalInputRef.current?.click();
+                                    } else {
+                                        folderKunciInputRef.current?.click();
+                                    }
+                                }}
+                                className="flex items-center gap-3.5 p-3.5 rounded-[16px] bg-surface-container hover:bg-surface-variant/40 border border-surface-variant text-on-surface font-bold text-sm transition-all active:scale-[0.98]"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-surface-variant text-primary flex items-center justify-center flex-shrink-0">
+                                    <FolderOpen className="w-5 h-5" />
+                                </div>
+                                <div className="text-left">
+                                    <div className="text-sm font-bold text-on-surface">Buka Folder / Galeri HP</div>
+                                    <div className="text-xs text-secondary font-normal">Pilih screenshot digital atau file foto</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Status message */}
             {(isPending || status) && (

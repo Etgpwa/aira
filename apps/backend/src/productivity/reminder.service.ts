@@ -3,6 +3,7 @@ import { normalizeIsoDate } from '../utils/date.utils';
 import { taskService } from './task.service';
 
 export class ReminderService {
+    private processingReminderIds: Set<string> = new Set();
 
     /**
      * Membuat pengingat baru.
@@ -210,70 +211,98 @@ export class ReminderService {
             console.log(`⏰ Ditemukan ${dueReminders.length} custom reminder yang jatuh tempo.`);
 
             for (const item of dueReminders) {
-                // 1. Jika terhubung dengan task di Kanban, cek statusnya
-                if (item.task_id && item.tasks) {
-                    const taskStatus = (item.tasks as any).status;
-                    if (taskStatus === 'DONE') {
-                        console.log(`ℹ️ Task "${(item.tasks as any).title}" sudah DONE, custom reminder dibatalkan.`);
-                        await supabase
-                            .from('reminders')
-                            .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
-                            .eq('id', item.id);
-                        continue;
+                // 0. Guard in-memory agar 1 proses tidak mengeksekusi reminder yang sama secara bersamaan
+                if (this.processingReminderIds.has(item.id)) {
+                    continue;
+                }
+                this.processingReminderIds.add(item.id);
+
+                try {
+                    // 1. Jika terhubung dengan task di Kanban, cek statusnya
+                    if (item.task_id && item.tasks) {
+                        const taskStatus = (item.tasks as any).status;
+                        if (taskStatus === 'DONE') {
+                            console.log(`ℹ️ Task "${(item.tasks as any).title}" sudah DONE, custom reminder dibatalkan.`);
+                            await supabase
+                                .from('reminders')
+                                .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+                                .eq('id', item.id);
+                            continue;
+                        }
                     }
-                }
 
-                // 2. Dapatkan nomor tujuan dari user_settings
-                const numbersToSend: string[] = [];
-                const { data: userSetting } = await supabase
-                    .from('user_settings')
-                    .select('phone_number')
-                    .eq('user_id', item.user_id)
-                    .single();
-
-                if (userSetting && userSetting.phone_number) {
-                    const rawList = userSetting.phone_number.split(',').map((p: string) => p.trim()).filter(Boolean);
-                    
-                    // Prioritaskan LID (misal: 252093474578602 atau yang berakhiran @lid)
-                    const lid = rawList.find((p: string) => {
-                        const digits = p.replace(/[^0-9]/g, '');
-                        return p.endsWith('@lid') || (digits.length >= 15 && !digits.startsWith('62') && !digits.startsWith('08'));
-                    });
-
-                    if (lid) {
-                        const cleanLid = lid.replace(/[^0-9]/g, '');
-                        numbersToSend.push(`${cleanLid}@lid`);
-                    } else if (rawList.length > 0) {
-                        // Fallback ke nomor HP biasa jika tidak ada LID
-                        const clean = rawList[0].replace(/[^0-9]/g, '');
-                        numbersToSend.push(clean);
-                    }
-                }
-
-                if (numbersToSend.length === 0 && fallbackNumbers.length > 0) {
-                    numbersToSend.push(fallbackNumbers[0]);
-                }
-
-                const remindTimeStr = new Date(item.remind_at).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    timeZone: 'Asia/Jakarta'
-                });
-
-                const reminderText = `⏰ *PENGINGAT*\n${item.message}\n(Waktu: ${remindTimeStr} WIB)`;
-
-                let anySuccess = false;
-                for (const num of numbersToSend) {
-                    const sent = await sendFn(num, reminderText);
-                    if (sent) anySuccess = true;
-                }
-
-                if (anySuccess) {
-                    await supabase
+                    // 2. Atomic claim di database Supabase:
+                    // Klaim reminder dengan mengupdate status 'PENDING' -> 'SENT' secara langsung.
+                    // Jika ada proses lain yang mengeksekusi bersamaan, update hanya akan berhasil pada 1 pemenang.
+                    const { data: claimed, error: claimErr } = await supabase
                         .from('reminders')
                         .update({ status: 'SENT', updated_at: new Date().toISOString() })
-                        .eq('id', item.id);
-                    console.log(`✅ Custom reminder [${item.message}] berhasil dikirim.`);
+                        .eq('id', item.id)
+                        .eq('status', 'PENDING')
+                        .select('id');
+
+                    if (claimErr || !claimed || claimed.length === 0) {
+                        console.log(`ℹ️ Reminder [${item.id}] sudah di-claim oleh instance/proses lain, lewati.`);
+                        continue;
+                    }
+
+                    // 3. Dapatkan nomor tujuan dari user_settings
+                    const numbersToSend: string[] = [];
+                    const { data: userSetting } = await supabase
+                        .from('user_settings')
+                        .select('phone_number')
+                        .eq('user_id', item.user_id)
+                        .single();
+
+                    if (userSetting && userSetting.phone_number) {
+                        const rawList = userSetting.phone_number.split(',').map((p: string) => p.trim()).filter(Boolean);
+                        
+                        // Prioritaskan LID (misal: 252093474578602 atau yang berakhiran @lid)
+                        const lid = rawList.find((p: string) => {
+                            const digits = p.replace(/[^0-9]/g, '');
+                            return p.endsWith('@lid') || (digits.length >= 15 && !digits.startsWith('62') && !digits.startsWith('08'));
+                        });
+
+                        if (lid) {
+                            const cleanLid = lid.replace(/[^0-9]/g, '');
+                            numbersToSend.push(`${cleanLid}@lid`);
+                        } else if (rawList.length > 0) {
+                            // Fallback ke nomor HP biasa jika tidak ada LID
+                            const clean = rawList[0].replace(/[^0-9]/g, '');
+                            numbersToSend.push(clean);
+                        }
+                    }
+
+                    if (numbersToSend.length === 0 && fallbackNumbers.length > 0) {
+                        numbersToSend.push(fallbackNumbers[0]);
+                    }
+
+                    const remindTimeStr = new Date(item.remind_at).toLocaleTimeString('id-ID', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'Asia/Jakarta'
+                    });
+
+                    const reminderText = `⏰ *PENGINGAT*\n${item.message}\n(Waktu: ${remindTimeStr} WIB)`;
+
+                    let anySuccess = false;
+                    for (const num of numbersToSend) {
+                        const sent = await sendFn(num, reminderText);
+                        if (sent) anySuccess = true;
+                    }
+
+                    if (!anySuccess) {
+                        // Rollback status ke PENDING jika pengiriman WA gagal total
+                        await supabase
+                            .from('reminders')
+                            .update({ status: 'PENDING', updated_at: new Date().toISOString() })
+                            .eq('id', item.id);
+                        console.warn(`⚠️ Custom reminder [${item.message}] gagal kirim, dikembalikan ke PENDING.`);
+                    } else {
+                        console.log(`✅ Custom reminder [${item.message}] berhasil dikirim.`);
+                    }
+                } finally {
+                    this.processingReminderIds.delete(item.id);
                 }
             }
         } catch (err) {

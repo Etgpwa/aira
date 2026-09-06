@@ -71,7 +71,7 @@ async function callGeminiWithRotation<T>(task: (ai: GoogleGenAI) => Promise<T>):
 async function geminiText(prompt: string): Promise<string> {
     return callGeminiWithRotation(async (ai) => {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.5-flash',
             contents: prompt,
         });
         return response.text ?? '';
@@ -81,7 +81,7 @@ async function geminiText(prompt: string): Promise<string> {
 async function geminiVision(base64: string, mimeType: string, prompt: string): Promise<string> {
     return callGeminiWithRotation(async (ai) => {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.5-flash',
             contents: [
                 { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
                 prompt
@@ -92,7 +92,21 @@ async function geminiVision(base64: string, mimeType: string, prompt: string): P
 }
 
 function cleanJson(raw: string): string {
-    return raw.replace(/```json/gi, '').replace(/```/gi, '').trim();
+    if (!raw) return '';
+    let cleaned = raw.replace(/```json/gi, '').replace(/```/gi, '').trim();
+    // Prioritaskan mencari kurung siku [ ... ] untuk array
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+        return cleaned.substring(firstBracket, lastBracket + 1);
+    }
+    // Jika bukan array, cari kurung kurawal { ... } untuk object
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        return cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return cleaned;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -217,29 +231,41 @@ export async function deleteQuestion(questionId: string, moduleId: string) {
 // ────────────────────────────────────────────────────────────────
 
 export async function ocrSoal(base64: string, mimeType: string, subjectName: string): Promise<any[]> {
-    const prompt = `Kamu adalah sistem ekstraksi soal ujian. Gambar ini adalah halaman modul/buku teks kuliah yang berisi soal-soal latihan.
-Ekstrak SEMUA soal yang ditemukan, termasuk soal pilihan ganda dan essay.
-Untuk setiap soal, identifikasi: teks soal, tipe (MCQ atau ESSAY), dan pilihan A/B/C/D jika ada.
-Jangan sertakan nomor soal di dalam question_text. correct_answer diisi "?" untuk sementara jika tidak ada kunci.
+    const prompt = `Kamu adalah sistem OCR cerdas pengekstraksi soal ujian dan tugas kuliah.
+Gambar ini bisa berupa foto modul/buku teks, screenshot dokumen digital/PDF, tangkapan layar HP/laptop, atau lembar tugas kuliah yang berisi soal-soal latihan/ujian.
+Tugasmu: Ekstrak SEMUA soal yang ditemukan di gambar ini secara akurat.
+Dukung baik soal pilihan ganda (MCQ) maupun soal essay/uraian.
+Untuk setiap soal, identifikasi:
+- question_text: Teks pertanyaan lengkap (hilangkan nomor soal di awal seperti '1. ', '2. ', dsb).
+- question_type: "MCQ" jika ada opsi pilihan ganda, atau "ESSAY" jika berupa uraian.
+- option_a, option_b, option_c, option_d: Teks opsi jika MCQ (hilangkan prefix seperti 'a. ', 'b. ', dsb). Jika soal essay atau opsi kurang dari 4, opsi yang tidak ada diisi null.
+- correct_answer: Jika ada tanda kunci jawaban di gambar (misal dilingkari, dicentang, atau di-bold), tulis huruf jawabannya ("A", "B", "C", atau "D"). Jika tidak diketahui, isi "?".
 
-Kembalikan HANYA array JSON valid ini (tanpa markdown backtick, tanpa penjelasan):
-[{
-  "question_text": "teks pertanyaan lengkap",
-  "question_type": "MCQ",
-  "option_a": "teks opsi A",
-  "option_b": "teks opsi B",
-  "option_c": "teks opsi C",
-  "option_d": "teks opsi D",
-  "correct_answer": "?"
-}]
+Kembalikan HANYA array JSON valid tanpa markdown backticks dan tanpa teks pengantar apapun:
+[
+  {
+    "question_text": "teks pertanyaan lengkap",
+    "question_type": "MCQ",
+    "option_a": "teks opsi A",
+    "option_b": "teks opsi B",
+    "option_c": "teks opsi C",
+    "option_d": "teks opsi D",
+    "correct_answer": "?"
+  }
+]
 
-Jika soal essay, option_a sampai option_d diisi null.
-Jika tidak ada soal, kembalikan: []`;
+Jika tidak ada soal yang terdeteksi di gambar, kembalikan array kosong: []`;
 
-    const raw = await geminiVision(base64, mimeType, prompt);
-    const parsed = JSON.parse(cleanJson(raw));
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(q => ({ ...q, subject_name: subjectName }));
+    try {
+        const raw = await geminiVision(base64, mimeType, prompt);
+        const cleaned = cleanJson(raw);
+        const parsed = JSON.parse(cleaned);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map(q => ({ ...q, subject_name: subjectName }));
+    } catch (err) {
+        console.error('❌ Gagal memproses OCR Soal:', err);
+        throw new Error('Gagal mengekstrak soal dari gambar. Pastikan gambar cukup jelas dan coba lagi.');
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -247,19 +273,25 @@ Jika tidak ada soal, kembalikan: []`;
 // ────────────────────────────────────────────────────────────────
 
 export async function ocrKunciJawaban(base64: string, mimeType: string): Promise<Record<number, string>> {
-    const prompt = `Gambar ini adalah lembar kunci jawaban soal ujian/latihan.
-Ekstrak semua pasangan nomor soal dan jawaban yang benar.
-Kembalikan HANYA JSON object ini (tanpa markdown backtick):
+    const prompt = `Gambar ini adalah lembar kunci jawaban soal ujian/latihan (bisa foto cetak atau screenshot digital).
+Ekstrak semua pasangan nomor soal dan huruf jawaban yang benar.
+Kembalikan HANYA JSON object valid ini (tanpa markdown backtick):
 {
   "1": "A",
   "2": "C",
   "3": "B"
 }
-Gunakan integer sebagai key. Jika lembar jawaban tidak terbaca jelas, kembalikan: {}`;
+Gunakan string nomor ("1", "2", dst) sebagai key dan huruf kapital ("A", "B", "C", "D", "E") sebagai value. Jika tidak ada yang terbaca jelas, kembalikan: {}`;
 
-    const raw = await geminiVision(base64, mimeType, prompt);
-    const parsed = JSON.parse(cleanJson(raw));
-    return parsed || {};
+    try {
+        const raw = await geminiVision(base64, mimeType, prompt);
+        const cleaned = cleanJson(raw);
+        const parsed = JSON.parse(cleaned);
+        return parsed || {};
+    } catch (err) {
+        console.error('❌ Gagal memproses OCR Kunci:', err);
+        throw new Error('Gagal mengekstrak kunci jawaban dari gambar.');
+    }
 }
 
 export async function applyKunciToModule(moduleId: string, kunci: Record<number, string>) {

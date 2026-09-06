@@ -12,51 +12,69 @@ const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 export class CronService {
     private sock: any;
+    private initialized: boolean = false;
+    private tasks: cron.ScheduledTask[] = [];
     private sentReminders: Set<string> = new Set();
+    private lastDailyBriefingDate: string = '';
+    private lastStoryReminderDate: string = '';
 
     init(sock: any) {
         this.sock = sock;
+        if (this.initialized) {
+            console.log('🔄 CronService already initialized. Socket reference updated.');
+            return;
+        }
+        this.initialized = true;
         console.log('✅ CronService initialized (socket ready).');
 
         // 1. Daily Briefing (Jalan setiap jam 06:00 pagi)
-        cron.schedule('0 6 * * *', async () => {
+        this.tasks.push(cron.schedule('0 6 * * *', async () => {
             console.log('⏰ Menjalankan Daily Briefing...');
             await this.runDailyBriefing();
         }, {
             timezone: 'Asia/Jakarta'
-        });
+        }));
 
         // 2. Smart Reminder (Jalan setiap 15 menit)
-        cron.schedule('*/15 * * * *', async () => {
+        this.tasks.push(cron.schedule('*/15 * * * *', async () => {
             console.log('⏰ Mengecek Smart Reminders...');
             await this.runSmartReminders();
             await this.runScheduleReminders();
-        });
+        }));
 
         // 3. Debt Reminder (Jalan setiap jam 07:00 pagi)
-        cron.schedule('0 7 * * *', async () => {
+        this.tasks.push(cron.schedule('0 7 * * *', async () => {
             console.log('⏰ Mengecek Debt Reminders...');
             await this.runDebtReminders();
         }, {
             timezone: 'Asia/Jakarta'
-        });
+        }));
 
         // 4. Custom Reminders (Jalan setiap 1 menit)
-        cron.schedule('* * * * *', async () => {
+        this.tasks.push(cron.schedule('* * * * *', async () => {
             const realNumbers = this.getRealPhoneNumbers();
             await reminderService.processDueReminders(
                 (phone, text) => this.safeSendMessage(phone, text),
                 realNumbers
             );
-        });
+        }));
 
         // 5. Story Medsos Check (Jalan jam 15:30 sore, Senin s/d Sabtu)
-        cron.schedule('30 15 * * 1-6', async () => {
+        this.tasks.push(cron.schedule('30 15 * * 1-6', async () => {
             console.log('⏰ Menjalankan Reminder Story Medsos 15:30...');
             await this.runStoryReminder();
         }, {
             timezone: 'Asia/Jakarta'
-        });
+        }));
+    }
+
+    /** Menghentikan semua task cron jika diperlukan */
+    destroy() {
+        for (const task of this.tasks) {
+            task.stop();
+        }
+        this.tasks = [];
+        this.initialized = false;
     }
 
     /** Dipanggil ketika terjadi reconnect agar sock selalu up-to-date */
@@ -90,11 +108,12 @@ export class CronService {
     }
 
     /**
-     * Mengirim pesan WA dengan retry otomatis jika terjadi 408 Timeout.
-     * Baileys kadang timeout saat socket idle karena USyncDevices query ke WA server.
-     * Solusi: retry dengan jeda agar WA server punya waktu merespons.
+     * Mengirim pesan WA dengan proteksi anti-spam.
+     * PENTING: Jika terjadi 408 Timeout pada sinyal lemah, Baileys tidak menerima ACK tapi paket
+     * sebenarnya sudah sampai ke server WhatsApp dan diteruskan ke HP. Retry di sini TIDAK boleh dilakukan
+     * agar tidak terjadi pengiriman berulang (duplikat).
      */
-    private async safeSendMessage(phoneNumber: string, text: string, maxRetries = 3): Promise<boolean> {
+    private async safeSendMessage(phoneNumber: string, text: string, maxRetries = 1): Promise<boolean> {
         if (!this.sock) {
             console.warn('⚠️ CronService: sock belum siap, reminder dilewati.');
             return false;
@@ -120,9 +139,8 @@ export class CronService {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                // Jeda sedikit sebelum kirim agar connection tidak tiba-tiba "cold"
                 if (attempt > 1) {
-                    const waitMs = attempt * 3000; // 3s, 6s, 9s
+                    const waitMs = attempt * 3000;
                     console.log(`🔁 Retry ke-${attempt} mengirim reminder ke ${cleanNumber} dalam ${waitMs / 1000}s...`);
                     await sleep(waitMs);
                 }
@@ -132,9 +150,10 @@ export class CronService {
                 return true;
             } catch (err: any) {
                 const is408 = err?.output?.statusCode === 408 || String(err).includes('Timed Out') || String(err).includes('408');
-                if (is408 && attempt < maxRetries) {
-                    console.warn(`⚠️ Timeout 408 saat kirim reminder (attempt ${attempt}/${maxRetries}), akan retry...`);
-                    continue;
+                if (is408) {
+                    // Sinyal lemah / ACK terlambat: paket sudah masuk ke WhatsApp server, jangan retry!
+                    console.warn(`⚠️ Warning: Timeout 408 saat kirim reminder ke ${cleanNumber}. Pesan kemungkinan besar telah diteruskan oleh WhatsApp server, tidak di-retry agar tidak spam duplikat.`);
+                    return true;
                 }
                 console.error(`❌ Gagal mengirim reminder ke ${cleanNumber} setelah ${attempt} percobaan:`, err?.message || err);
                 return false;
@@ -145,6 +164,14 @@ export class CronService {
 
     private async runDailyBriefing() {
         try {
+            // Guard: Daily Briefing hanya boleh dijalankan maksimal 1x per hari kalender
+            const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
+            if (this.lastDailyBriefingDate === todayStr) {
+                console.log(`ℹ️ Daily Briefing sudah dikirim hari ini (${todayStr}), lewati duplikasi.`);
+                return;
+            }
+            this.lastDailyBriefingDate = todayStr;
+
             const realNumbers = this.getRealPhoneNumbers();
             if (realNumbers.length === 0) {
                 console.warn('⚠️ Daily Briefing: WHATSAPP_PHONE_NUMBER tidak ada di .env, skip.');
@@ -218,6 +245,14 @@ export class CronService {
 
     private async runStoryReminder() {
         try {
+            // Guard: Story reminder hanya boleh dikirim 1x per hari kalender
+            const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
+            if (this.lastStoryReminderDate === todayStr) {
+                console.log(`ℹ️ Story Reminder sudah dikirim hari ini (${todayStr}), lewati duplikasi.`);
+                return;
+            }
+            this.lastStoryReminderDate = todayStr;
+
             const realNumbers = this.getRealPhoneNumbers();
             if (realNumbers.length === 0) return;
 
@@ -263,6 +298,8 @@ export class CronService {
 
                 // H-3 Jam (window: 2.25 - 3.25 jam)
                 if (diffHours > 2.25 && diffHours <= 3.25 && !this.sentReminders.has(h3Key)) {
+                    // Kunci segera sebelum await
+                    this.sentReminders.add(h3Key);
                     let anySuccess = false;
                     for (const num of realNumbers) {
                         const ok = await this.safeSendMessage(num,
@@ -270,11 +307,13 @@ export class CronService {
                         );
                         if (ok) anySuccess = true;
                     }
-                    if (anySuccess) this.sentReminders.add(h3Key);
+                    if (!anySuccess) this.sentReminders.delete(h3Key);
                 }
 
                 // H-1 Jam / mendekati tenggat (window: -0.25 - 1.25 jam)
                 if (diffHours > -0.25 && diffHours <= 1.25 && !this.sentReminders.has(h1Key)) {
+                    // Kunci segera sebelum await
+                    this.sentReminders.add(h1Key);
                     let anySuccess = false;
                     for (const num of realNumbers) {
                         const ok = await this.safeSendMessage(num,
@@ -282,7 +321,7 @@ export class CronService {
                         );
                         if (ok) anySuccess = true;
                     }
-                    if (anySuccess) this.sentReminders.add(h1Key);
+                    if (!anySuccess) this.sentReminders.delete(h1Key);
                 }
             }
         } catch (error) {
@@ -316,6 +355,9 @@ export class CronService {
                 const schedKey = `${sched.id}_${nowJkt.toDateString()}`;
 
                 if (diffMins > 0 && diffMins <= 30 && !this.sentReminders.has(schedKey)) {
+                    // Kunci segera sebelum await agar jika ada overlap tidak mengirim ganda
+                    this.sentReminders.add(schedKey);
+
                     let anySuccess = false;
                     for (const num of realNumbers) {
                         const ok = await this.safeSendMessage(num,
@@ -323,7 +365,9 @@ export class CronService {
                         );
                         if (ok) anySuccess = true;
                     }
-                    if (anySuccess) this.sentReminders.add(schedKey);
+                    if (!anySuccess) {
+                        this.sentReminders.delete(schedKey);
+                    }
                 }
             }
         } catch (error) {
@@ -356,6 +400,8 @@ export class CronService {
                     const debtKey = `${debt.id}_${now.toDateString()}`;
 
                     if (!this.sentReminders.has(debtKey)) {
+                        // Kunci segera sebelum await
+                        this.sentReminders.add(debtKey);
                         let anySuccess = false;
                         for (const num of realNumbers) {
                             const ok = await this.safeSendMessage(num,
@@ -363,7 +409,9 @@ export class CronService {
                             );
                             if (ok) anySuccess = true;
                         }
-                        if (anySuccess) this.sentReminders.add(debtKey);
+                        if (!anySuccess) {
+                            this.sentReminders.delete(debtKey);
+                        }
                     }
                 }
             }

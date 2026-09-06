@@ -33,6 +33,11 @@ export const sanitizeWhatsAppText = (text: string): string => {
     return text.replace(/(\d)\.(\d)/g, '$1.\u200B$2');
 };
 
+// State tingkat modul untuk mencegah duplikasi pendaftaran cron dan koneksi ganda
+let cronInitialized = false;
+let activeSock: any = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
+
 export const connectToWhatsApp = async () => {
     // Simpan folder sesi di root workspace agar selalu persisten
     const authDir = path.resolve(process.cwd(), 'auth_info_baileys');
@@ -43,9 +48,6 @@ export const connectToWhatsApp = async () => {
         logger: require('pino')({ level: 'silent' }),
         browser: ['AsistenPribadi PWA', 'Chrome', '1.0.0'],
     });
-
-    // Inisialisasi cron jobs SETELAH socket open agar connection sudah siap
-    let cronInitialized = false;
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -61,18 +63,34 @@ export const connectToWhatsApp = async () => {
 
             console.log('Koneksi terputus (Status Code:', statusCode, ')');
 
+            // Bersihkan soket dan listener lama agar tidak bocor di memory
+            if (activeSock) {
+                try {
+                    activeSock.ev.removeAllListeners('connection.update');
+                    activeSock.ev.removeAllListeners('messages.upsert');
+                    activeSock.ev.removeAllListeners('creds.update');
+                } catch (e) {}
+                activeSock = null;
+            }
+
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+
             if (isLoggedOut) {
                 console.log('🔄 Sesi kadaluarsa/logout detected. Hapus sesi lama & regenerasi QR code baru...');
                 if (fs.existsSync(authDir)) {
                     fs.rmSync(authDir, { recursive: true, force: true });
                 }
-                connectToWhatsApp();
+                reconnectTimer = setTimeout(() => connectToWhatsApp(), 2000);
             } else {
-                console.log('🔄 Mencoba reconnecting...');
-                connectToWhatsApp();
+                console.log('🔄 Mencoba reconnecting dalam 3 detik...');
+                reconnectTimer = setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
             console.log('\n✅ Sukses! Bot WhatsApp berhasil terhubung!\n');
+            activeSock = sock;
             // Init cron jobs HANYA saat socket pertama kali open (bukan setiap reconnect)
             if (!cronInitialized) {
                 cronInitialized = true;

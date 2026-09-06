@@ -10,8 +10,8 @@ import ReminderHubModal from '@/components/ReminderHubModal';
 const FinanceChart = dynamic(() => import('@/components/FinanceChart'), {
   ssr: false,
   loading: () => (
-    <div className="h-[250px] flex items-center justify-center">
-      <p className="text-secondary text-sm">Memuat grafik...</p>
+    <div className="h-[260px] sm:h-[280px] w-full flex items-center justify-center bg-surface-container-low/30 rounded-xl">
+      <p className="text-secondary text-sm animate-pulse">Memuat grafik...</p>
     </div>
   ),
 });
@@ -41,16 +41,17 @@ export default async function Home() {
         .eq('user_id', userId)
         .gte('transaction_date', (() => {
           const d = new Date();
-          d.setMonth(d.getMonth() - 5);
           d.setDate(1);
+          d.setMonth(d.getMonth() - 5);
+          d.setHours(0, 0, 0, 0);
           return d.toISOString();
         })()),
       supabase
         .from('transactions')
-        .select('id, amount, type, category, description, transaction_date')
+        .select('id, amount, type, description, transaction_date, bank_accounts (name), transaction_categories (name)')
         .eq('user_id', userId)
         .order('transaction_date', { ascending: false })
-        .limit(3),
+        .limit(5),
       supabase
         .from('reminders')
         .select('*')
@@ -71,6 +72,7 @@ export default async function Home() {
     // Chart Data 6 bulan
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
+      d.setDate(1);
       d.setMonth(d.getMonth() - i);
       chartData.push({
         monthKey: format(d, 'yyyy-MM'),
@@ -177,8 +179,8 @@ export default async function Home() {
       {/* Mid section: Chart + Activity (lg: 2 columns) */}
       <div className="lg:grid lg:grid-cols-[1.5fr_1fr] lg:gap-8">
         {/* Cash Flow Chart */}
-        <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-6 shadow-[0_8px_24px_rgba(24,26,42,0.04)] mb-6 lg:mb-0">
-          <div className="flex justify-between items-center mb-6">
+        <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(24,26,42,0.04)] mb-6 lg:mb-0">
+          <div className="flex justify-between items-center mb-4 sm:mb-6">
             <div>
               <h3 className="text-base font-bold text-on-surface">Arus Kas</h3>
               <p className="text-xs text-secondary mt-0.5">Tren 6 bulan terakhir</p>
@@ -187,7 +189,9 @@ export default async function Home() {
               6 Bulan
             </span>
           </div>
-          <FinanceChart data={chartData} />
+          <div className="w-full h-[260px] sm:h-[280px]">
+            <FinanceChart data={chartData} />
+          </div>
         </div>
 
         {/* Recent Transactions */}
@@ -199,26 +203,38 @@ export default async function Home() {
             </Link>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2.5">
             {recentTransactions.length === 0 ? (
               <p className="text-secondary text-sm text-center py-6">Belum ada transaksi</p>
             ) : (
-              recentTransactions.map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-surface-container-low transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-mint-bg text-mint-fg' : 'bg-peach-bg text-peach-fg'}`}>
-                      {tx.type === 'income' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+              recentTransactions.map((tx) => {
+                const categoryName = tx.transaction_categories?.name || (tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran');
+                const accountName = tx.bank_accounts?.name;
+                const formattedDate = format(new Date(tx.transaction_date), 'dd MMM yyyy, HH:mm', { locale: id });
+                return (
+                  <div key={tx.id} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-surface-container-low transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'income' ? 'bg-mint-bg text-mint-fg' : 'bg-peach-bg text-peach-fg'}`}>
+                        {tx.type === 'income' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-on-surface truncate capitalize">{categoryName}</h4>
+                        <p className="text-[11px] text-secondary truncate">
+                          {formattedDate} {accountName ? `• ${accountName}` : ''}
+                        </p>
+                        {tx.description && tx.description.toLowerCase() !== categoryName.toLowerCase() && (
+                          <p className="text-[11px] text-secondary/80 truncate italic">
+                            "{tx.description}"
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-sm text-on-surface">{tx.category || (tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}</h4>
-                      <p className="text-[11px] text-secondary">{format(new Date(tx.transaction_date), 'dd MMM yyyy, HH:mm', { locale: id })}</p>
-                    </div>
+                    <p className={`font-extrabold text-sm tabular-nums shrink-0 ml-2 ${tx.type === 'income' ? 'text-mint-fg' : 'text-danger'}`}>
+                      {tx.type === 'income' ? '+' : '-'}{formatRupiah(Number(tx.amount))}
+                    </p>
                   </div>
-                  <p className={`font-extrabold text-sm tabular-nums ${tx.type === 'income' ? 'text-mint-fg' : 'text-danger'}`}>
-                    {tx.type === 'income' ? '+' : '-'}{formatRupiah(Number(tx.amount))}
-                  </p>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

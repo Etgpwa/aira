@@ -73,6 +73,33 @@ export class AcademicService {
     }
 
     /**
+     * 2b. Ambil target belajar dan KB untuk matkul di minggu tertentu
+     */
+    async getCourseTargetForWeek(userId: string, subjectName: string, weekNumber: number): Promise<{ topic?: string, is_completed?: boolean, modules: any[] }> {
+        const [targetRes, moduleRes] = await Promise.all([
+            supabase
+                .from('course_weekly_targets')
+                .select('*')
+                .eq('user_id', userId)
+                .ilike('subject_name', `%${subjectName}%`)
+                .eq('week_number', weekNumber)
+                .maybeSingle(),
+            supabase
+                .from('course_modules')
+                .select('id, module_title, kb_title, is_completed, best_score')
+                .eq('user_id', userId)
+                .ilike('subject_name', `%${subjectName}%`)
+                .eq('week_number', weekNumber)
+        ]);
+
+        return {
+            topic: targetRes.data?.topic,
+            is_completed: targetRes.data?.is_completed,
+            modules: moduleRes.data || []
+        };
+    }
+
+    /**
      * 3. OCR Jadwal Kuliah & Simpan ke Supabase
      */
     async importScheduleFromImage(userId: string, imageBuffer: Buffer, mimeType: string): Promise<number> {

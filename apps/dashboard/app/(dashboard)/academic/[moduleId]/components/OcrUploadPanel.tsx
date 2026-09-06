@@ -81,39 +81,68 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     };
 
     const handleScanSoal = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
 
-        setStatus('Menganalisis foto dengan Gemini AI...');
         startTransition(async () => {
-            try {
-                const { base64, mimeType } = await handleFileToBase64(file);
-                const result = await ocrSoal(base64, mimeType, subjectName);
-                setPreviewQuestions(result);
-                setStatus(result.length > 0 ? `Ditemukan ${result.length} soal. Periksa & simpan di bawah.` : 'Tidak ada soal terdeteksi.');
-            } catch (err: any) {
-                setStatus('Gagal scan soal. Coba lagi.');
-                console.error(err);
+            const allExtracted: any[] = [];
+            let errorCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const currentFile = files[i];
+                setStatus(`Menganalisis foto ${i + 1} dari ${files.length} (${currentFile.name.slice(0, 15)}...)...`);
+                try {
+                    const { base64, mimeType } = await handleFileToBase64(currentFile);
+                    const result = await ocrSoal(base64, mimeType, subjectName);
+                    if (Array.isArray(result) && result.length > 0) {
+                        allExtracted.push(...result);
+                    }
+                } catch (err: any) {
+                    console.error(`Gagal scan foto ke-${i + 1}:`, err);
+                    errorCount++;
+                }
+            }
+
+            if (allExtracted.length > 0) {
+                setPreviewQuestions(prev => [...(prev || []), ...allExtracted]);
+                const errNote = errorCount > 0 ? ` (${errorCount} foto gagal diproses)` : '';
+                setStatus(`Selesai! Ditemukan total ${allExtracted.length} soal dari ${files.length} gambar.${errNote} Periksa & simpan di bawah.`);
+            } else {
+                setStatus(errorCount > 0 ? 'Gagal memproses gambar. Pastikan gambar jelas dan coba lagi.' : 'Tidak ada soal yang terdeteksi pada gambar.');
             }
         });
         e.target.value = '';
     };
 
     const handleScanKunci = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
 
-        setStatus('Membaca kunci jawaban...');
         startTransition(async () => {
-            try {
-                const { base64, mimeType } = await handleFileToBase64(file);
-                const result = await ocrKunciJawaban(base64, mimeType);
-                setKunciResult(result);
-                const count = Object.keys(result).length;
-                setStatus(count > 0 ? `Kunci jawaban untuk ${count} soal terdeteksi. Konfirmasi untuk diterapkan.` : 'Kunci jawaban tidak terbaca.');
-            } catch (err: any) {
-                setStatus('Gagal scan kunci. Coba lagi.');
-                console.error(err);
+            const mergedKunci: Record<number, string> = {};
+            let errorCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const currentFile = files[i];
+                setStatus(`Membaca kunci jawaban foto ${i + 1} dari ${files.length}...`);
+                try {
+                    const { base64, mimeType } = await handleFileToBase64(currentFile);
+                    const result = await ocrKunciJawaban(base64, mimeType);
+                    if (result && typeof result === 'object') {
+                        Object.assign(mergedKunci, result);
+                    }
+                } catch (err: any) {
+                    console.error(`Gagal scan kunci foto ke-${i + 1}:`, err);
+                    errorCount++;
+                }
+            }
+
+            const count = Object.keys(mergedKunci).length;
+            if (count > 0) {
+                setKunciResult(prev => ({ ...(prev || {}), ...mergedKunci }));
+                setStatus(`Selesai! Terdeteksi total ${count} kunci jawaban dari ${files.length} gambar. Konfirmasi untuk menerapkan.`);
+            } else {
+                setStatus('Kunci jawaban tidak terbaca pada gambar.');
             }
         });
         e.target.value = '';
@@ -163,11 +192,12 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                 className="hidden"
                 onChange={handleScanSoal}
             />
-            {/* Soal: Buka Folder / Galeri */}
+            {/* Soal: Buka Folder / Galeri (Bisa Pilih Banyak Foto) */}
             <input
                 ref={folderSoalInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={handleScanSoal}
             />
@@ -181,11 +211,12 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                 className="hidden"
                 onChange={handleScanKunci}
             />
-            {/* Kunci: Buka Folder / Galeri */}
+            {/* Kunci: Buka Folder / Galeri (Bisa Pilih Banyak Foto) */}
             <input
                 ref={folderKunciInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={handleScanKunci}
             />
@@ -287,8 +318,8 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                                     <FolderOpen className="w-5 h-5" />
                                 </div>
                                 <div className="text-left">
-                                    <div className="text-sm font-bold text-on-surface">Buka Folder / Galeri HP</div>
-                                    <div className="text-xs text-secondary font-normal">Pilih screenshot digital atau file foto</div>
+                                    <div className="text-sm font-bold text-on-surface">Buka Galeri / Folder (Bisa Pilih Banyak Foto)</div>
+                                    <div className="text-xs text-secondary font-normal">Pilih satu atau beberapa file foto / screenshot sekaligus</div>
                                 </div>
                             </button>
                         </div>

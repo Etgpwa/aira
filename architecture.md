@@ -27,7 +27,11 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 - **Routing**:
   - `/login`: Autentikasi.
   - `/`: Overview.
-  - `/academic`: Modul Akademik, Kuis & Rekap Mingguan.
+  - `/academic`: Modul Akademik, Bank Soal, & Progres Silabus Kuliah UT.
+  - `/academic/[moduleId]`: Detail KB, Scan Soal & Kunci (Multiple Pick File OCR), dan Bank Soal.
+  - `/academic/[moduleId]/quiz`: Simulator Ujian CBT Mandiri (Mode Normal & Mode Challenge AI Paraphrase).
+  - `/academic/event`: Mode Event (Simulasi UTS/UAS 30 Butir Soal Acak Multi-KB dengan Akses Instan ke Mode Challenge).
+  - `/academic/schedule`: Roadmap Perencanaan Studi & Sesi Perkuliahan Mandiri UT.
   - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
   - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
 

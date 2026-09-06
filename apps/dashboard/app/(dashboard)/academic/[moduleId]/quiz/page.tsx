@@ -6,7 +6,13 @@ import QuizRunner from '../components/QuizRunner';
 
 export const revalidate = 0;
 
-export default async function ModuleQuizPage({ params }: { params: { moduleId: string } }) {
+export default async function ModuleQuizPage({
+    params,
+    searchParams
+}: {
+    params: { moduleId: string };
+    searchParams?: { mode?: string };
+}) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return notFound();
@@ -28,6 +34,7 @@ export default async function ModuleQuizPage({ params }: { params: { moduleId: s
         .order('created_at', { ascending: true });
 
     const mcqQuestions = (questions || []).filter(q => q.question_type === 'MCQ');
+    const initialMode = searchParams?.mode === 'challenge' ? 'challenge' : 'normal';
 
     return (
         <div className="min-h-screen bg-surface flex flex-col">
@@ -62,6 +69,8 @@ export default async function ModuleQuizPage({ params }: { params: { moduleId: s
                         questions={mcqQuestions}
                         moduleId={params.moduleId}
                         isAlreadyCompleted={module.is_completed}
+                        bestScore={module.best_score}
+                        initialMode={initialMode}
                     />
                 ) : (
                     <div className="bg-surface-bright border border-surface-variant rounded-[24px] p-6 text-center flex flex-col items-center gap-4 shadow-sm mt-4">

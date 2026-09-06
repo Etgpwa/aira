@@ -553,16 +553,27 @@ export const connectToWhatsApp = async () => {
                                         if (txt.includes('sabtu')) day = 6;
                                         if (txt.includes('minggu')) day = 0;
 
+                                        const currentWeek = await academicService.getCurrentWeekNumber(userId);
                                         const { data } = await supabase.from('course_schedules').select('*').eq('user_id', userId).eq('day_of_week', day).order('start_time', { ascending: true });
                                         
                                         const dayNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
-                                        let msg = `JADWAL KULIAH (${dayNames[day].toUpperCase()}):\n`;
+                                        let msg = `JADWAL KULIAH (${dayNames[day].toUpperCase()} • MINGGU KE-${currentWeek}):\n`;
                                         if (data && data.length > 0) {
-                                            data.forEach(s => {
+                                            for (const s of data) {
                                                 msg += `• ${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)}: ${s.subject_name}`;
-                                                if (s.room) msg += ` (R.${s.room})`;
+                                                if (s.room) msg += ` (${s.room})`;
+                                                
+                                                // Ambil target materi spesifik minggu ini (Auto-Query)
+                                                const targetInfo = await academicService.getCourseTargetForWeek(userId, s.subject_name, currentWeek);
+                                                if (targetInfo.topic) {
+                                                    msg += `\n  🎯 Target: ${targetInfo.topic}`;
+                                                    if (targetInfo.is_completed) msg += ` (Selesai)`;
+                                                } else if (targetInfo.modules && targetInfo.modules.length > 0) {
+                                                    const kbTitles = targetInfo.modules.map((m: any) => m.kb_title).join(', ');
+                                                    msg += `\n  🎯 Target KB: ${kbTitles}`;
+                                                }
                                                 msg += `\n`;
-                                            });
+                                            }
                                         } else {
                                             msg += `Libur / Tidak ada jadwal.`;
                                         }

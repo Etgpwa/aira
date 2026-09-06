@@ -159,6 +159,65 @@ CREATE TABLE IF NOT EXISTS therapy_schedules (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 13. course_schedules (Jadwal Kuliah Mingguan)
+CREATE TABLE IF NOT EXISTS course_schedules (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  subject_name VARCHAR NOT NULL,
+  day_of_week INT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  room VARCHAR,
+  lecturer VARCHAR,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 14. course_weekly_targets (Target Mingguan per Matkul)
+CREATE TABLE IF NOT EXISTS course_weekly_targets (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  subject_name VARCHAR NOT NULL,
+  week_number INT NOT NULL,
+  material_title VARCHAR NOT NULL,
+  is_completed BOOLEAN DEFAULT FALSE NOT NULL,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 15. course_modules (Kontainer Materi Modul / KB)
+CREATE TABLE IF NOT EXISTS course_modules (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  subject_name VARCHAR NOT NULL,
+  module_title VARCHAR NOT NULL,
+  kb_title VARCHAR NOT NULL,
+  week_number INT,
+  is_completed BOOLEAN DEFAULT FALSE NOT NULL,
+  best_score INT,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 16. course_quiz_questions (Bank Soal Kuis OCR + user_note)
+CREATE TABLE IF NOT EXISTS course_quiz_questions (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  module_id UUID REFERENCES course_modules(id) ON DELETE CASCADE,
+  subject_name VARCHAR,
+  week_number INT,
+  question_text TEXT NOT NULL,
+  option_a TEXT,
+  option_b TEXT,
+  option_c TEXT,
+  option_d TEXT,
+  correct_answer VARCHAR NOT NULL,
+  question_type VARCHAR DEFAULT 'MCQ' NOT NULL,
+  already_asked BOOLEAN DEFAULT FALSE NOT NULL,
+  user_note TEXT,
+  last_asked_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- ==========================================
 -- 2. ROW LEVEL SECURITY (RLS)
 -- ==========================================
@@ -177,6 +236,10 @@ ALTER TABLE study_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_routines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE therapy_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE course_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE course_weekly_targets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE course_modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE course_quiz_questions ENABLE ROW LEVEL SECURITY;
 
 -- Policies for Authenticated Users
 CREATE POLICY "Users can only access their own settings" ON user_settings FOR ALL USING (auth.uid() = user_id);
@@ -191,6 +254,10 @@ CREATE POLICY "Users can only access their own study schedules" ON study_schedul
 CREATE POLICY "Users can only access their own reminders" ON reminders FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can only access their own work routines" ON work_routines FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can only access their own therapy schedules" ON therapy_schedules FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own course schedules" ON course_schedules FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own weekly targets" ON course_weekly_targets FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own course modules" ON course_modules FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can only access their own quiz questions" ON course_quiz_questions FOR ALL USING (auth.uid() = user_id);
 
 -- 17. Tabel ai_training_rules (Dynamic AI Intent Rules & Few-Shot Learning)
 CREATE TABLE IF NOT EXISTS ai_training_rules (

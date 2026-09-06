@@ -27,9 +27,16 @@ interface ChatMessage {
 }
 
 const COMMON_INTENTS = [
-    'ADD_EXPENSE', 'ADD_INCOME', 'ADD_TASK', 'ADD_REMINDER', 
-    'RESCHEDULE_REMINDER', 'UPDATE_TASK_PROGRESS', 'PAY_DEBT', 
-    'ADD_RECEIVABLE', 'TOPUP_GOAL', 'QUERY_FINANCE', 'QUERY_AGENDA'
+    'ADD_EXPENSE', 'ADD_INCOME', 'SET_BALANCE', 'SET_BUDGET', 
+    'ADD_DEBT', 'ADD_RECEIVABLE', 'PAY_DEBT', 'DELETE_DEBT', 
+    'DELETE_TRANSACTION', 'CREATE_GOAL', 'TOPUP_GOAL', 'DELETE_GOAL', 
+    'QUERY_FINANCE', 'ADD_TASK', 'COMPLETE_TASK', 'UPDATE_TASK_PROGRESS', 
+    'DELETE_TASK', 'ADD_SCHEDULE', 'DELETE_SCHEDULE', 'QUERY_AGENDA', 
+    'ADD_REMINDER', 'RESCHEDULE_REMINDER', 'DELETE_REMINDER', 
+    'UPDATE_LAST_TRANSACTION', 'CANCEL_LAST_TRANSACTION', 
+    'QUERY_ROUTINE', 'UPDATE_ROUTINE', 'QUERY_THERAPY_SCHEDULE', 
+    'SET_SEMESTER_START', 'QUERY_COURSE_SCHEDULE', 'ADD_COURSE_TARGET', 
+    'COMPLETE_COURSE_WEEK', 'QUERY_COURSE_PROGRESS', 'CHITCHAT', 'UNKNOWN'
 ];
 
 export default function SandboxPage() {
@@ -489,10 +496,15 @@ export default function SandboxPage() {
                 <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-1.5 text-xs">
                     <span className="text-[10px] text-secondary font-medium whitespace-nowrap pl-0.5">Uji:</span>
                     {[
+                        'hari ini kuliah apa aja?',
+                        'hari ini seragam apa?',
+                        'jadwal terapi hari ini',
+                        'cek saldo',
+                        'ada tugas apa besok?',
+                        'progres kuliah gimana?',
                         'Beli bensin 30k pakai SeaBank',
                         'A tuker cash 50k transfer ke BCA 50k',
-                        'Nanti jam 4 sore ingetin kerjain tugas web',
-                        'Cek saldo dan sisa tabungan'
+                        'Nanti jam 4 sore ingetin kerjain tugas web'
                     ].map((prompt, idx) => (
                         <button
                             key={idx}

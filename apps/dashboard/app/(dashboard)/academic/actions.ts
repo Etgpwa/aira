@@ -436,3 +436,137 @@ Kembalikan HANYA JSON ini (tanpa markdown backtick):
     revalidatePath(`/academic/${moduleId}`);
     return true;
 }
+
+// ────────────────────────────────────────────────────────────────
+// User Notes: Simpan Catatan / Trik Pengerjaan Pembahasan
+// ────────────────────────────────────────────────────────────────
+
+export async function saveQuestionNote(questionId: string, userNote: string) {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Tidak terautentikasi');
+
+    const { error } = await supabase
+        .from('course_quiz_questions')
+        .update({ user_note: userNote.trim() })
+        .eq('id', questionId)
+        .eq('user_id', user.id);
+
+    if (error) {
+        console.error('Gagal menyimpan user_note:', error);
+        throw error;
+    }
+    return { success: true };
+}
+
+// ────────────────────────────────────────────────────────────────
+// AI: Batch Paraphrase Soal On-The-Fly (Mode Challenge)
+// ────────────────────────────────────────────────────────────────
+
+export async function batchParaphraseQuestions(questions: any[]): Promise<any[]> {
+    if (!questions || questions.length === 0) return [];
+
+    const chunkSize = 10;
+    const allParaphrased: any[] = [];
+
+    for (let i = 0; i < questions.length; i += chunkSize) {
+        const chunk = questions.slice(i, i + chunkSize);
+        const promptInput = chunk.map((q, idx) => ({
+            index: idx,
+            question_text: q.question_text,
+            option_a: q.option_a,
+            option_b: q.option_b,
+            option_c: q.option_c,
+            option_d: q.option_d,
+            correct_answer: q.correct_answer,
+        }));
+
+        const prompt = `Kamu adalah dosen dan pembuat soal ujian akademik universitas.
+Tugasmu: Parafrase SEMUA butir soal pilihan ganda di bawah ini secara serentak untuk Mode Ujian Challenge.
+Tujuannya adalah menguji pemahaman konsep siswa, BUKAN sekadar hafalan kalimat.
+
+Instruksi Wajib:
+1. Tulis ulang 'question_text' dengan sudut pandang, skenario, atau kalimat baru yang segar tetapi menanyakan konsep ilmiah/materi yang PERSIS SAMA.
+2. Variasikan kalimat pada 'option_a', 'option_b', 'option_c', dan 'option_d'.
+3. SANGAT KRUSIAL: Pilihan jawaban yang benar HARUS TETAP BERADA di huruf yang sama dengan 'correct_answer' aslinya, sehingga kunci jawaban tidak berubah!
+4. Kembalikan HANYA array JSON valid (tanpa markdown backtick):
+[
+  {
+    "index": 0,
+    "question_text": "...",
+    "option_a": "...",
+    "option_b": "...",
+    "option_c": "...",
+    "option_d": "...",
+    "correct_answer": "..."
+  }
+]
+
+Daftar Soal Sumber:
+${JSON.stringify(promptInput, null, 2)}`;
+
+        try {
+            const raw = await geminiText(prompt);
+            const cleaned = cleanJson(raw);
+            const parsed = JSON.parse(cleaned);
+
+            if (Array.isArray(parsed)) {
+                for (let j = 0; j < chunk.length; j++) {
+                    const originalQ = chunk[j];
+                    const pQ = parsed.find((p: any) => p.index === j) || parsed[j];
+                    if (pQ && pQ.question_text) {
+                        allParaphrased.push({
+                            ...originalQ,
+                            question_text: pQ.question_text,
+                            option_a: pQ.option_a || originalQ.option_a,
+                            option_b: pQ.option_b || originalQ.option_b,
+                            option_c: pQ.option_c || originalQ.option_c,
+                            option_d: pQ.option_d || originalQ.option_d,
+                            correct_answer: originalQ.correct_answer,
+                            is_paraphrased: true,
+                        });
+                    } else {
+                        allParaphrased.push({ ...originalQ, is_paraphrased: false });
+                    }
+                }
+            } else {
+                allParaphrased.push(...chunk);
+            }
+        } catch (err) {
+            console.error('Error saat batch paraphrase chunk:', err);
+            allParaphrased.push(...chunk);
+        }
+    }
+
+    return allParaphrased;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mode Event: Ambil 30 Soal Acak dari Multiple KB
+// ────────────────────────────────────────────────────────────────
+
+export async function getEventQuestions(moduleIds: string[]): Promise<any[]> {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Tidak terautentikasi');
+
+    if (!moduleIds || moduleIds.length === 0) return [];
+
+    const { data: questions, error } = await supabase
+        .from('course_quiz_questions')
+        .select('*')
+        .in('module_id', moduleIds)
+        .eq('user_id', user.id)
+        .eq('question_type', 'MCQ');
+
+    if (error) {
+        console.error('Gagal mengambil event questions:', error);
+        throw error;
+    }
+
+    if (!questions || questions.length === 0) return [];
+
+    const shuffled = [...questions].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 30);
+}
+

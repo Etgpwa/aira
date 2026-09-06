@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, BookOpen, CheckCircle2, Trophy, FileText, Play, ChevronRight, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Trophy, FileText, Play, ChevronRight, Sparkles, Lock } from 'lucide-react';
 import Link from 'next/link';
 import QuestionList from './components/QuestionList';
 import OcrUploadPanel from './components/OcrUploadPanel';
@@ -75,23 +75,44 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
                                     <h2 className="font-extrabold text-base text-on-surface">Simulasi Kuis Mandiri</h2>
                                     {module.is_completed && (
                                         <span className="text-[10px] bg-mint-bg/30 text-mint-fg font-bold px-2 py-0.5 rounded-full">
-                                            Selesai (Skor: {module.best_score})
+                                            Skor Terbaik: {module.best_score}
                                         </span>
                                     )}
                                 </div>
                                 <p className="text-xs text-secondary mt-0.5 leading-relaxed">
-                                    Tersedia <strong>{mcqCount} soal MCQ</strong>. Uji pemahaman materi ini dalam tampilan ujian fokus di halaman khusus.
+                                    Tersedia <strong>{mcqCount} soal MCQ</strong>. Uji materi dalam format CBT atau tantang pemahaman konsep di Mode Challenge.
                                 </p>
                             </div>
                         </div>
 
-                        <Link
-                            href={`/academic/${params.moduleId}/quiz`}
-                            className="bg-primary hover:bg-primary-container text-on-primary px-5 py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_16px_rgba(56,74,216,0.25)] active:scale-95 transition-all flex-shrink-0"
-                        >
-                            <span>{module.is_completed ? 'Ulangi Kuis' : 'Mulai Simulasi Kuis'}</span>
-                            <ChevronRight className="w-4 h-4" />
-                        </Link>
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0">
+                            <Link
+                                href={`/academic/${params.moduleId}/quiz?mode=normal`}
+                                className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2.5 rounded-full font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_4px_16px_rgba(56,74,216,0.25)] active:scale-95 transition-all"
+                            >
+                                <span>{module.is_completed ? 'Kuis Normal' : 'Mulai Kuis'}</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                            </Link>
+
+                            {module.best_score === 100 ? (
+                                <Link
+                                    href={`/academic/${params.moduleId}/quiz?mode=challenge`}
+                                    className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-full font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_4px_16px_rgba(245,158,11,0.3)] active:scale-95 transition-all"
+                                >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>Challenge</span>
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                </Link>
+                            ) : (
+                                <div
+                                    className="bg-surface-container/80 border border-surface-variant text-secondary px-3.5 py-2.5 rounded-full font-semibold text-xs flex items-center justify-center gap-1.5 opacity-70 cursor-not-allowed"
+                                    title="Raih nilai 100 di Kuis Normal untuk membuka Mode Challenge"
+                                >
+                                    <Lock className="w-3.5 h-3.5" />
+                                    <span>Challenge (Kunci: Nilai 100)</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="bg-surface-bright border border-surface-variant rounded-[18px] p-4 flex items-center gap-3.5 mb-5">

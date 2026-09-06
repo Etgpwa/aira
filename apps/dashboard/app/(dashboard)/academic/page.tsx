@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { GraduationCap, Plus, Search, BookOpen, CheckCircle2, Trophy } from 'lucide-react';
+import { GraduationCap, Plus, Search, BookOpen, CheckCircle2, Trophy, Calendar, ChevronRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import CreateModuleModal from './components/CreateModuleModal';
 import CourseScheduleSection from './components/CourseScheduleSection';
@@ -14,13 +14,15 @@ export default async function AcademicPage() {
   let modules: any[] = [];
   let allCourseSchedules: any[] = [];
   let todaySchedules: any[] = [];
+  let weeklyTargets: any[] = [];
+  let currentWeek = 1;
 
   if (userId) {
     const todayDay = new Date().getDay();
     let yesterdayDay = todayDay - 1;
     if (yesterdayDay < 0) yesterdayDay = 6;
 
-    const [modRes, schedRes] = await Promise.all([
+    const [modRes, schedRes, targetsRes, settingsRes] = await Promise.all([
       supabase
         .from('course_modules')
         .select('*, course_quiz_questions(count)')
@@ -32,12 +34,35 @@ export default async function AcademicPage() {
         .eq('user_id', userId)
         .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true }),
+      supabase
+        .from('course_weekly_targets')
+        .select('*')
+        .eq('user_id', userId)
+        .order('week_number', { ascending: true }),
+      supabase
+        .from('user_settings')
+        .select('semester_start_date')
+        .eq('user_id', userId)
+        .maybeSingle(),
     ]);
 
     if (modRes.data) {
       modules = modRes.data;
       allCourseSchedules = schedRes.data || [];
+      weeklyTargets = targetsRes.data || [];
       todaySchedules = allCourseSchedules.filter(s => s.day_of_week === yesterdayDay);
+
+      // Hitung Minggu Berjalan Saat Ini
+      const semesterStartDate = settingsRes.data?.semester_start_date || null;
+      if (semesterStartDate) {
+        const startDate = new Date(semesterStartDate + 'T00:00:00');
+        const today = new Date();
+        if (today >= startDate) {
+          const diffTime = Math.abs(today.getTime() - startDate.getTime());
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          currentWeek = Math.floor(diffDays / 7) + 1;
+        }
+      }
     }
   }
 
@@ -98,10 +123,67 @@ export default async function AcademicPage() {
         </div>
       </section>
 
-      {/* Jadwal Belajar Aktif & Tunggakan Kuis */}
+      {/* Banner Navigasi: Mode Event (UTS) & Roadmap Silabus UT */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <Link
+          href="/academic/event"
+          className="bg-gradient-to-br from-amber-500/10 via-surface-bright to-surface-bright border border-amber-500/30 hover:border-amber-500/60 rounded-[20px] p-4 flex items-center justify-between shadow-xs transition-all group active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-extrabold text-sm text-on-surface">Simulasi UTS / UAS</p>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                  30 Soal
+                </span>
+              </div>
+              <p className="text-xs text-secondary mt-0.5">
+                Kuis akbar gabungan KB pilihan · Bebas Challenge
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center text-amber-600 font-bold text-xs gap-1 flex-shrink-0">
+            <span className="hidden sm:inline">Mulai</span>
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </Link>
+
+        <Link
+          href="/academic/schedule"
+          className="bg-surface-bright border border-surface-variant hover:border-primary/40 rounded-[20px] p-4 flex items-center justify-between shadow-xs transition-all group active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-extrabold text-sm text-on-surface">Roadmap Silabus UT</p>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-primary text-white">
+                  Minggu ke-{currentWeek}
+                </span>
+              </div>
+              <p className="text-xs text-secondary mt-0.5">
+                Atur jadwal matkul & auto-query target KB harian
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center text-primary font-bold text-xs gap-1 flex-shrink-0">
+            <span className="hidden sm:inline">Buka</span>
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </Link>
+      </section>
+
+      {/* Jadwal Belajar Aktif & Tunggakan Kuis (Smart Auto-Query) */}
       <CourseScheduleSection
         schedules={allCourseSchedules}
         modules={modules}
+        weeklyTargets={weeklyTargets}
+        currentWeek={currentWeek}
       />
 
       {/* Tombol Buat KB Baru */}

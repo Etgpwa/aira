@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useEffect, useTransition } from 'react';
+import { createPortal } from 'react-dom';
 import { Pencil, Trash2, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { updateModule, deleteModule } from '../../actions';
 import { useRouter } from 'next/navigation';
@@ -20,6 +21,7 @@ export default function ModuleHeaderActions({
     initialKbTitle,
     questionCount
 }: ModuleHeaderActionsProps) {
+    const [mounted, setMounted] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
@@ -30,6 +32,10 @@ export default function ModuleHeaderActions({
     const [isPending, startTransition] = useTransition();
     const [errorMessage, setErrorMessage] = useState('');
     const router = useRouter();
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const handleUpdate = (e: React.FormEvent) => {
         e.preventDefault();
@@ -97,10 +103,10 @@ export default function ModuleHeaderActions({
                 <Trash2 className="w-4 h-4" />
             </button>
 
-            {/* Modal Edit Modul & KB */}
-            {isEditOpen && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200">
-                    <div className="bg-surface w-full max-w-md rounded-t-[28px] sm:rounded-[28px] p-6 shadow-2xl border border-surface-variant flex flex-col">
+            {/* Modal Edit Modul & KB (Menggunakan createPortal agar lepas dari konteks sticky header) */}
+            {mounted && isEditOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
+                    <div className="bg-surface w-full max-w-md rounded-t-[28px] sm:rounded-[28px] p-6 pb-28 sm:pb-6 shadow-2xl border border-surface-variant flex flex-col max-h-[90dvh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-4 pb-2 border-b border-surface-variant">
                             <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -177,13 +183,14 @@ export default function ModuleHeaderActions({
                             </div>
                         </form>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            {/* Modal Konfirmasi Hapus KB */}
-            {isDeleteOpen && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-                    <div className="bg-surface w-full max-w-sm rounded-[24px] p-5 shadow-2xl border border-surface-variant flex flex-col gap-3.5">
+            {/* Modal Konfirmasi Hapus KB (Menggunakan createPortal agar lepas dari konteks sticky header) */}
+            {mounted && isDeleteOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-surface w-full max-w-sm rounded-[24px] p-5 shadow-2xl border border-surface-variant flex flex-col gap-3.5 max-h-[90dvh] overflow-y-auto">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
                                 <Trash2 className="w-5 h-5" />
@@ -222,7 +229,8 @@ export default function ModuleHeaderActions({
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

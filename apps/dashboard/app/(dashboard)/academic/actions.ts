@@ -143,6 +143,25 @@ export async function deleteModule(moduleId: string) {
     revalidatePath('/academic');
 }
 
+export async function updateModule(moduleId: string, data: { subject_name: string; module_title: string; kb_title: string }) {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Tidak terautentikasi');
+
+    const { error } = await supabase.from('course_modules')
+        .update({
+            subject_name: data.subject_name.trim(),
+            module_title: data.module_title.trim(),
+            kb_title: data.kb_title.trim()
+        })
+        .eq('id', moduleId)
+        .eq('user_id', user.id);
+
+    if (error) throw error;
+    revalidatePath('/academic');
+    revalidatePath(`/academic/${moduleId}`);
+}
+
 export async function completeModule(moduleId: string, score: number) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();

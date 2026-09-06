@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useTransition } from 'react';
-import { Plus, X, Loader2, Check, BookOpen, Clock, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Plus, X, Loader2, Check, BookOpen, Clock, AlertCircle, Sparkles, CheckCircle2, Calendar, Trash2 } from 'lucide-react';
 import { createCourseSchedule } from '../schedule-actions';
 
 const DAYS = [
@@ -30,11 +30,38 @@ interface ModuleItem {
     is_completed?: boolean;
 }
 
+interface TargetItem {
+    id: string;
+    isCustom: boolean;
+    moduleId: string;
+    customText: string;
+}
+
 interface AddCourseScheduleModalProps {
     defaultSubject?: string;
     availableModules?: ModuleItem[];
     triggerButton?: React.ReactNode;
 }
+
+const getTodayStr = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const formatDisplayDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    });
+};
 
 export default function AddCourseScheduleModal({
     defaultSubject = '',
@@ -53,13 +80,19 @@ export default function AddCourseScheduleModal({
     const [subjectName, setSubjectName] = useState(defaultSubject || existingSubjects[0] || '');
     const [isCustomSubject, setIsCustomSubject] = useState(existingSubjects.length === 0);
 
-    // State Target Materi / Modul
-    const [selectedModuleId, setSelectedModuleId] = useState<string>('');
-    const [isCustomMaterial, setIsCustomMaterial] = useState<boolean>(true);
-    const [customMaterialText, setCustomMaterialText] = useState('');
+    // State Tanggal & Hari Belajar
+    const [scheduleDate, setScheduleDate] = useState<string>(getTodayStr());
+    const [dayOfWeek, setDayOfWeek] = useState<number>(() => {
+        const d = new Date();
+        return d.getDay();
+    });
 
-    // State Hari, Jam, Metode, Tutor
-    const [dayOfWeek, setDayOfWeek] = useState<number>(1);
+    // State Target Materi yang Dipelajari (Dapat lebih dari 1)
+    const [targets, setTargets] = useState<TargetItem[]>([
+        { id: 't-1', isCustom: true, moduleId: '', customText: '' }
+    ]);
+
+    // State Jam, Metode, Tutor
     const [startTime, setStartTime] = useState('19:30');
     const [endTime, setEndTime] = useState('21:00');
     const [studyMethod, setStudyMethod] = useState(UT_METHODS[0]);
@@ -68,6 +101,14 @@ export default function AddCourseScheduleModal({
     const [isPending, startTransition] = useTransition();
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
+
+    // Modul yang relevan dengan mata kuliah yang sedang dipilih
+    const currentSubjectModules = useMemo(() => {
+        if (!subjectName) return [];
+        return availableModules.filter(
+            (m) => m.subject_name?.trim().toLowerCase() === subjectName.trim().toLowerCase()
+        );
+    }, [availableModules, subjectName]);
 
     // Sinkronisasi state saat modal dibuka
     useEffect(() => {
@@ -83,27 +124,26 @@ export default function AddCourseScheduleModal({
             setSubjectName(initialSubject);
             setIsCustomSubject(subjects.length === 0);
 
+            const today = getTodayStr();
+            setScheduleDate(today);
+            const d = new Date(today + 'T00:00:00');
+            setDayOfWeek(d.getDay());
+
             const filteredMods = availableModules.filter(
                 (m) => m.subject_name?.trim().toLowerCase() === initialSubject.trim().toLowerCase()
             );
 
             if (filteredMods.length > 0) {
-                setSelectedModuleId(filteredMods[0].id);
-                setIsCustomMaterial(false);
+                setTargets([
+                    { id: 't-init', isCustom: false, moduleId: filteredMods[0].id, customText: '' }
+                ]);
             } else {
-                setSelectedModuleId('');
-                setIsCustomMaterial(true);
+                setTargets([
+                    { id: 't-init', isCustom: true, moduleId: '', customText: '' }
+                ]);
             }
         }
     }, [isOpen, defaultSubject, availableModules]);
-
-    // Modul yang relevan dengan mata kuliah yang sedang dipilih
-    const currentSubjectModules = useMemo(() => {
-        if (!subjectName) return [];
-        return availableModules.filter(
-            (m) => m.subject_name?.trim().toLowerCase() === subjectName.trim().toLowerCase()
-        );
-    }, [availableModules, subjectName]);
 
     // Handle saat ganti mata kuliah dari dropdown
     const handleSubjectChange = (newSubject: string) => {
@@ -112,12 +152,64 @@ export default function AddCourseScheduleModal({
             (m) => m.subject_name?.trim().toLowerCase() === newSubject.trim().toLowerCase()
         );
         if (filtered.length > 0) {
-            setSelectedModuleId(filtered[0].id);
-            setIsCustomMaterial(false);
+            setTargets([
+                { id: 't-' + Date.now(), isCustom: false, moduleId: filtered[0].id, customText: '' }
+            ]);
         } else {
-            setSelectedModuleId('');
-            setIsCustomMaterial(true);
+            setTargets([
+                { id: 't-' + Date.now(), isCustom: true, moduleId: '', customText: '' }
+            ]);
         }
+    };
+
+    // Handle saat ganti tanggal
+    const handleDateChange = (val: string) => {
+        setScheduleDate(val);
+        if (val) {
+            const d = new Date(val + 'T00:00:00');
+            if (!isNaN(d.getTime())) {
+                setDayOfWeek(d.getDay());
+            }
+        }
+    };
+
+    // Handle saat ganti hari secara manual
+    const handleDayChange = (newDay: number) => {
+        setDayOfWeek(newDay);
+        if (scheduleDate) {
+            const d = new Date(scheduleDate + 'T00:00:00');
+            if (!isNaN(d.getTime())) {
+                const cur = d.getDay();
+                let diff = newDay - cur;
+                d.setDate(d.getDate() + diff);
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                setScheduleDate(`${year}-${month}-${day}`);
+            }
+        }
+    };
+
+    // Helper Multi-Target
+    const handleAddTarget = () => {
+        setTargets(prev => [
+            ...prev,
+            {
+                id: 't-' + Math.random().toString(36).substring(2, 9),
+                isCustom: currentSubjectModules.length === 0,
+                moduleId: currentSubjectModules.length > 0 ? currentSubjectModules[0].id : '',
+                customText: ''
+            }
+        ]);
+    };
+
+    const handleRemoveTarget = (id: string) => {
+        if (targets.length <= 1) return;
+        setTargets(prev => prev.filter(t => t.id !== id));
+    };
+
+    const handleUpdateTarget = (id: string, updates: Partial<TargetItem>) => {
+        setTargets(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -135,18 +227,35 @@ export default function AddCourseScheduleModal({
             return;
         }
 
-        // Tentukan target material dan moduleId
-        let finalTargetMaterial = '';
-        let finalModuleId: string | null = null;
+        // Kumpulkan semua target materi
+        const targetStrings: string[] = [];
+        let firstModuleId: string | null = null;
 
-        if (!isCustomMaterial && selectedModuleId) {
-            const foundMod = currentSubjectModules.find((m) => m.id === selectedModuleId);
-            if (foundMod) {
-                finalTargetMaterial = `${foundMod.module_title} • ${foundMod.kb_title}`;
-                finalModuleId = foundMod.id;
+        for (const t of targets) {
+            if (!t.isCustom && t.moduleId) {
+                const foundMod = currentSubjectModules.find((m) => m.id === t.moduleId);
+                if (foundMod) {
+                    targetStrings.push(`${foundMod.module_title} • ${foundMod.kb_title}`);
+                    if (!firstModuleId) firstModuleId = foundMod.id;
+                }
+            } else if (t.customText.trim()) {
+                targetStrings.push(t.customText.trim());
             }
-        } else if (customMaterialText.trim()) {
-            finalTargetMaterial = customMaterialText.trim();
+        }
+
+        // Tambahkan label tanggal pada target_material agar tersimpan rapi
+        let dateTag = '';
+        if (scheduleDate) {
+            const d = new Date(scheduleDate + 'T00:00:00');
+            if (!isNaN(d.getTime())) {
+                const dateFormatted = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+                dateTag = `[${dateFormatted}]`;
+            }
+        }
+
+        let finalTargetMaterial = targetStrings.join(', ');
+        if (dateTag) {
+            finalTargetMaterial = finalTargetMaterial ? `${dateTag} ${finalTargetMaterial}` : dateTag;
         }
 
         startTransition(async () => {
@@ -159,14 +268,13 @@ export default function AddCourseScheduleModal({
                     room: studyMethod.trim() || null,
                     lecturer: tutor.trim() || null,
                     targetMaterial: finalTargetMaterial || null,
-                    moduleId: finalModuleId
+                    moduleId: firstModuleId
                 });
 
                 setSuccessMessage('Jadwal belajar mandiri berhasil disimpan!');
                 setTimeout(() => {
                     setIsOpen(false);
                     setSuccessMessage('');
-                    setCustomMaterialText('');
                 }, 1000);
             } catch (err: any) {
                 setErrorMessage(err?.message || 'Gagal menyimpan jadwal');
@@ -190,7 +298,7 @@ export default function AddCourseScheduleModal({
 
             {isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
-                    <div className="bg-surface w-full max-w-lg rounded-t-[28px] sm:rounded-[28px] p-6 pb-28 sm:pb-6 shadow-2xl max-h-[88dvh] overflow-y-auto border border-surface-variant flex flex-col">
+                    <div className="bg-surface w-full max-w-lg rounded-t-[28px] sm:rounded-[28px] p-6 pb-28 sm:pb-6 shadow-2xl max-h-[90dvh] overflow-y-auto border border-surface-variant flex flex-col">
                         {/* Header Modal */}
                         <div className="flex justify-between items-center mb-5">
                             <div className="flex items-center gap-3">
@@ -199,7 +307,7 @@ export default function AddCourseScheduleModal({
                                 </div>
                                 <div>
                                     <h2 className="text-xl font-extrabold text-on-surface">Jadwal Belajar Mandiri</h2>
-                                    <p className="text-xs text-secondary mt-0.5">Tentukan hari, jam, & modul yang ingin kamu pelajari</p>
+                                    <p className="text-xs text-secondary mt-0.5">Tentukan tanggal, jam, & target materi belajar</p>
                                 </div>
                             </div>
                             <button
@@ -223,7 +331,9 @@ export default function AddCourseScheduleModal({
                                                 setIsCustomSubject(nextState);
                                                 if (nextState) {
                                                     setSubjectName('');
-                                                    setIsCustomMaterial(true);
+                                                    setTargets([
+                                                        { id: 't-' + Date.now(), isCustom: true, moduleId: '', customText: '' }
+                                                    ]);
                                                 } else {
                                                     handleSubjectChange(existingSubjects[0] || '');
                                                 }
@@ -259,73 +369,127 @@ export default function AddCourseScheduleModal({
                                 )}
                             </div>
 
-                            {/* 2. Target Materi / Modul Spesifik Hari Itu */}
+                            {/* 2. Tanggal & Hari Belajar */}
                             <div className="bg-surface-container-low border border-surface-variant rounded-2xl p-4">
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-xs font-bold text-primary flex items-center gap-1.5">
-                                        <Sparkles className="w-3.5 h-3.5" /> Target Materi yang Dipelajari
-                                    </label>
-                                    {currentSubjectModules.length > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsCustomMaterial(!isCustomMaterial)}
-                                            className="text-[10px] font-bold text-primary hover:underline"
-                                        >
-                                            {isCustomMaterial ? 'Pilih Modul Terdaftar' : 'Ketik Manual'}
-                                        </button>
-                                    )}
-                                </div>
-
-                                {!isCustomMaterial && currentSubjectModules.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
                                     <div>
+                                        <label className="text-xs font-bold text-secondary mb-1.5 flex items-center gap-1.5">
+                                            <Calendar className="w-3.5 h-3.5 text-primary" /> Tanggal Belajar *
+                                        </label>
+                                        <input
+                                            type="date"
+                                            required
+                                            value={scheduleDate}
+                                            onChange={(e) => handleDateChange(e.target.value)}
+                                            className="w-full bg-surface border border-surface-variant rounded-xl px-3.5 py-2.5 text-on-surface text-xs font-bold focus:outline-none focus:border-primary"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-bold text-secondary mb-1.5 block">Hari Belajar</label>
                                         <select
-                                            value={selectedModuleId}
-                                            onChange={(e) => setSelectedModuleId(e.target.value)}
-                                            className="w-full bg-surface border border-surface-variant rounded-xl px-3.5 py-2.5 text-on-surface text-xs font-semibold focus:outline-none focus:border-primary"
+                                            value={dayOfWeek}
+                                            onChange={(e) => handleDayChange(Number(e.target.value))}
+                                            className="w-full bg-surface border border-surface-variant rounded-xl px-3.5 py-2.5 text-on-surface text-xs font-bold focus:outline-none focus:border-primary"
                                         >
-                                            {currentSubjectModules.map((m) => (
-                                                <option key={m.id} value={m.id}>
-                                                    {m.module_title} • {m.kb_title} {m.is_completed ? '✅ (Selesai)' : ''}
+                                            {DAYS.map((d) => (
+                                                <option key={d.id} value={d.id}>
+                                                    {d.name}
                                                 </option>
                                             ))}
                                         </select>
-                                        <p className="text-[10px] text-secondary mt-1.5">
-                                            Jadwal ini akan terhubung langsung ke materi bacaan & simulasi kuis di tab Kuliah.
-                                        </p>
                                     </div>
-                                ) : (
-                                    <div>
-                                        <input
-                                            type="text"
-                                            value={customMaterialText}
-                                            onChange={(e) => setCustomMaterialText(e.target.value)}
-                                            placeholder="Contoh: Baca BMP Modul 2 hal 2.1-2.30, atau Kerjakan Tugas 1"
-                                            className="w-full bg-surface border border-surface-variant rounded-xl px-3.5 py-2.5 text-on-surface text-xs font-semibold focus:outline-none focus:border-primary placeholder:text-outline"
-                                        />
-                                        <p className="text-[10px] text-secondary mt-1.5">
-                                            Tuliskan target belajar mandirimu untuk hari ini secara fleksibel.
-                                        </p>
-                                    </div>
+                                </div>
+
+                                {scheduleDate && (
+                                    <p className="text-[11px] text-primary font-medium flex items-center gap-1 mt-1">
+                                        🗓️ Terjadwal untuk: <strong className="font-bold">{formatDisplayDate(scheduleDate)}</strong>
+                                    </p>
                                 )}
                             </div>
 
-                            {/* 3. Hari & Jam Belajar Mandiri */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div>
-                                    <label className="text-xs font-bold text-secondary mb-1.5 block">Hari Belajar</label>
-                                    <select
-                                        value={dayOfWeek}
-                                        onChange={(e) => setDayOfWeek(Number(e.target.value))}
-                                        className="w-full bg-surface-container border border-surface-variant rounded-xl px-3.5 py-3 text-on-surface text-sm font-semibold focus:outline-none focus:border-primary"
-                                    >
-                                        {DAYS.map((d) => (
-                                            <option key={d.id} value={d.id}>
-                                                {d.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                            {/* 3. Target Materi yang Dipelajari (Multi-Target dengan Tombol Plus) */}
+                            <div className="bg-surface-container-low border border-surface-variant rounded-2xl p-4 flex flex-col gap-3">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-xs font-bold text-primary flex items-center gap-1.5">
+                                        <Sparkles className="w-3.5 h-3.5" /> Target Materi yang Dipelajari ({targets.length})
+                                    </label>
+                                    <span className="text-[10px] text-secondary">Bisa lebih dari 1 target</span>
                                 </div>
 
+                                <div className="flex flex-col gap-2.5">
+                                    {targets.map((target, idx) => (
+                                        <div
+                                            key={target.id}
+                                            className="p-3 bg-surface rounded-xl border border-surface-variant flex flex-col gap-2 shadow-xs"
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-extrabold text-on-surface flex items-center gap-1.5">
+                                                    <span className="w-4 h-4 rounded-full bg-primary/10 text-primary text-[10px] flex items-center justify-center font-bold">
+                                                        {idx + 1}
+                                                    </span>
+                                                    Target #{idx + 1}
+                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    {currentSubjectModules.length > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUpdateTarget(target.id, { isCustom: !target.isCustom })}
+                                                            className="text-[10px] font-bold text-primary hover:underline"
+                                                        >
+                                                            {target.isCustom ? 'Pilih Modul Terdaftar' : 'Ketik Manual'}
+                                                        </button>
+                                                    )}
+                                                    {targets.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveTarget(target.id)}
+                                                            className="w-6 h-6 rounded-lg bg-surface-container hover:bg-red-50 hover:text-danger flex items-center justify-center text-secondary transition-colors"
+                                                            title="Hapus target ini"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {!target.isCustom && currentSubjectModules.length > 0 ? (
+                                                <select
+                                                    value={target.moduleId}
+                                                    onChange={(e) => handleUpdateTarget(target.id, { moduleId: e.target.value })}
+                                                    className="w-full bg-surface-container border border-surface-variant rounded-xl px-3 py-2 text-on-surface text-xs font-semibold focus:outline-none focus:border-primary"
+                                                >
+                                                    {currentSubjectModules.map((m) => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.module_title} • {m.kb_title} {m.is_completed ? '✅ (Selesai)' : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    value={target.customText}
+                                                    onChange={(e) => handleUpdateTarget(target.id, { customText: e.target.value })}
+                                                    placeholder="Contoh: Baca BMP Modul 2 hal 2.1-2.30 / Kerjakan Tugas 1"
+                                                    className="w-full bg-surface-container border border-surface-variant rounded-xl px-3 py-2 text-on-surface text-xs font-semibold focus:outline-none focus:border-primary placeholder:text-outline"
+                                                />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Tombol Tambah Target */}
+                                <button
+                                    type="button"
+                                    onClick={handleAddTarget}
+                                    className="flex items-center justify-center gap-1.5 w-full py-2.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold transition-all active:scale-[0.99] border border-dashed border-primary/30"
+                                >
+                                    <Plus className="w-4 h-4" /> Tambah Target Materi
+                                </button>
+                            </div>
+
+                            {/* 4. Jam Belajar Mandiri */}
+                            <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-bold text-secondary mb-1.5 flex items-center gap-1">
                                         <Clock className="w-3 h-3 text-primary" /> Jam Mulai *
@@ -353,7 +517,7 @@ export default function AddCourseScheduleModal({
                                 </div>
                             </div>
 
-                            {/* 4. Metode Belajar Khas UT (Pengganti Ruangan) */}
+                            {/* 5. Metode Belajar UT (Pengganti Ruangan) */}
                             <div>
                                 <label className="text-xs font-bold text-secondary mb-1.5 block">
                                     Metode / Media Belajar Mandiri
@@ -372,7 +536,7 @@ export default function AddCourseScheduleModal({
                                 </select>
                             </div>
 
-                            {/* 5. Tutor / Pengampu (Opsional) */}
+                            {/* 6. Tutor / Pengampu (Opsional) */}
                             <div>
                                 <label className="text-xs font-bold text-secondary mb-1 block">
                                     Tutor / Dosen UT (Opsional)

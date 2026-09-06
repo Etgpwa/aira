@@ -211,7 +211,7 @@ export default function CourseScheduleSection({ schedules, modules }: CourseSche
 
                                     {schedule.target_material ? (
                                         <div>
-                                            <p className="font-bold text-xs text-on-surface line-clamp-1">
+                                            <p className="font-bold text-xs text-on-surface line-clamp-2">
                                                 {schedule.target_material}
                                             </p>
                                             {activeModule && (
@@ -453,7 +453,7 @@ export default function CourseScheduleSection({ schedules, modules }: CourseSche
                                                 {schedule.subject_name}
                                             </h4>
                                             {schedule.target_material ? (
-                                                <p className="text-xs text-primary font-medium truncate">
+                                                <p className="text-xs text-primary font-medium line-clamp-2">
                                                     Target: {schedule.target_material}
                                                 </p>
                                             ) : activeModule ? (

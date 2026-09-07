@@ -118,9 +118,13 @@ export async function createModule(formData: FormData) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
-    const subject_name = formData.get('subject_name') as string;
-    const module_title = formData.get('module_title') as string;
-    const kb_title = formData.get('kb_title') as string;
+    const subject_name = (formData.get('subject_name') as string)?.trim();
+    const module_title = (formData.get('module_title') as string)?.trim();
+    const kb_title = (formData.get('kb_title') as string)?.trim();
+
+    if (!subject_name) throw new Error('Nama mata kuliah wajib diisi');
+    if (!module_title) throw new Error('Judul modul wajib diisi');
+    if (!kb_title) throw new Error('Judul KB wajib diisi');
 
     const { data, error } = await supabase.from('course_modules').insert({
         user_id: user.id,
@@ -131,6 +135,7 @@ export async function createModule(formData: FormData) {
 
     if (error) throw error;
     revalidatePath('/academic');
+    revalidatePath('/academic/schedule');
     return { id: data.id };
 }
 

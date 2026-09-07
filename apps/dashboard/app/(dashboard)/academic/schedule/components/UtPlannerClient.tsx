@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
     Calendar,
     Clock,
@@ -21,7 +22,8 @@ import {
     CalendarDays,
     BookMarked,
     Layers,
-    ArrowRight
+    ArrowRight,
+    Loader2
 } from 'lucide-react';
 import {
     setSemesterStartDate,
@@ -85,6 +87,7 @@ export default function UtPlannerClient({
     modules
 }: UtPlannerClientProps) {
     const [isPending, startTransition] = useTransition();
+    const router = useRouter();
 
     // Semester Start Date State
     const [isEditingSemester, setIsEditingSemester] = useState(false);
@@ -141,6 +144,7 @@ export default function UtPlannerClient({
             try {
                 await setSemesterStartDate(semesterStartDate);
                 setIsEditingSemester(false);
+                router.refresh();
             } catch (err: any) {
                 alert(err?.message || 'Gagal menyimpan tanggal semester');
             }
@@ -152,6 +156,7 @@ export default function UtPlannerClient({
         startTransition(async () => {
             try {
                 await toggleWeeklyTargetStatus(targetId, !currentStatus);
+                router.refresh();
             } catch (err: any) {
                 alert(err?.message || 'Gagal memperbarui status target');
             }
@@ -164,6 +169,7 @@ export default function UtPlannerClient({
         startTransition(async () => {
             try {
                 await deleteWeeklyTarget(targetId);
+                router.refresh();
             } catch (err: any) {
                 alert(err?.message || 'Gagal menghapus target');
             }
@@ -175,6 +181,7 @@ export default function UtPlannerClient({
         startTransition(async () => {
             try {
                 await assignModuleToWeek(moduleId, null);
+                router.refresh();
             } catch (err: any) {
                 alert(err?.message || 'Gagal melepas modul');
             }
@@ -184,15 +191,17 @@ export default function UtPlannerClient({
     // Handler hapus mata kuliah & target terkait
     const handleDeleteCourse = () => {
         if (!selectedSubject) return;
-        if (!confirm(`Hapus mata kuliah "${selectedSubject}" beserta seluruh jadwal belajar dan target silabusnya?`)) return;
+        const subjectToDelete = selectedSubject;
+        if (!confirm(`Hapus mata kuliah "${subjectToDelete}" beserta seluruh jadwal belajar, target silabus, dan modul KB-nya?`)) return;
 
         startTransition(async () => {
             try {
-                await deleteCoursePlan(selectedSubject);
+                await deleteCoursePlan(subjectToDelete);
                 const remaining = allSubjects.filter(
-                    (s) => s.toLowerCase() !== selectedSubject.toLowerCase()
+                    (s) => s.toLowerCase() !== subjectToDelete.toLowerCase()
                 );
                 setSelectedSubject(remaining[0] || '');
+                router.refresh();
             } catch (err: any) {
                 alert(err?.message || 'Gagal menghapus mata kuliah');
             }
@@ -242,6 +251,17 @@ export default function UtPlannerClient({
     useEffect(() => {
         setTotalWeeks(subjectMaxWeek);
     }, [selectedSubject]);
+
+    // Sinkronisasi selectedSubject jika subject terhapus atau kosong
+    useEffect(() => {
+        if (allSubjects.length > 0) {
+            if (!selectedSubject || !allSubjects.some((s) => s.toLowerCase() === selectedSubject.toLowerCase())) {
+                setSelectedSubject(allSubjects[0]);
+            }
+        } else {
+            setSelectedSubject('');
+        }
+    }, [allSubjects, selectedSubject]);
 
     // Jika ada target baru di luar batas totalWeeks saat ini, perluas otomatis
     useEffect(() => {
@@ -332,6 +352,7 @@ export default function UtPlannerClient({
                     <AddCourseScheduleModal
                         defaultSubject={selectedSubject}
                         availableModules={modules}
+                        existingSubjects={allSubjects}
                         triggerButton={
                             <button className="px-3 py-1.5 rounded-full bg-primary text-white text-xs font-bold flex items-center gap-1.5 shadow-sm hover:opacity-90 active:scale-95 transition-all">
                                 <Plus className="w-3.5 h-3.5" />
@@ -426,6 +447,7 @@ export default function UtPlannerClient({
                         </span>
                         <AddCourseScheduleModal
                             availableModules={modules}
+                            existingSubjects={allSubjects}
                             triggerButton={
                                 <button className="px-2.5 py-1 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-bold flex items-center gap-1 transition-all active:scale-95">
                                     <Plus className="w-3.5 h-3.5" /> Tambah Matkul
@@ -444,6 +466,7 @@ export default function UtPlannerClient({
                         </p>
                         <AddCourseScheduleModal
                             availableModules={modules}
+                            existingSubjects={allSubjects}
                             triggerButton={
                                 <button className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
                                     <Plus className="w-4 h-4" /> Tambah Mata Kuliah
@@ -539,7 +562,7 @@ export default function UtPlannerClient({
                                         title="Hapus mata kuliah ini"
                                         aria-label="Hapus mata kuliah ini"
                                     >
-                                        <Trash2 className="w-4 h-4" />
+                                        {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     </button>
                                 </>
                             ) : (
@@ -547,6 +570,7 @@ export default function UtPlannerClient({
                                     <AddCourseScheduleModal
                                         defaultSubject={selectedSubject}
                                         availableModules={modules}
+                                        existingSubjects={allSubjects}
                                         triggerButton={
                                             <button className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary border border-primary/20 text-xs font-bold flex items-center gap-1.5">
                                                 <Clock className="w-3.5 h-3.5" /> Atur Jam Belajar
@@ -560,7 +584,7 @@ export default function UtPlannerClient({
                                         title="Hapus mata kuliah ini"
                                         aria-label="Hapus mata kuliah ini"
                                     >
-                                        <Trash2 className="w-4 h-4" />
+                                        {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     </button>
                                 </>
                             )}

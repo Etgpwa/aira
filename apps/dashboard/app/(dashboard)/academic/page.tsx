@@ -85,6 +85,15 @@ export default async function AcademicPage() {
     grouped[m.subject_name].push(m);
   }
 
+  // Daftar unik semua mata kuliah yang sudah ada
+  const existingSubjects = Array.from(
+    new Set([
+      ...allCourseSchedules.map((s: any) => s.subject_name?.trim()),
+      ...modules.map((m: any) => m.subject_name?.trim()),
+      ...weeklyTargets.map((t: any) => t.subject_name?.trim()),
+    ].filter(Boolean) as string[])
+  );
+
   return (
     <div className="min-h-screen bg-surface px-1 sm:px-2 space-y-6 pb-16">
       {/* Header */}
@@ -188,7 +197,7 @@ export default async function AcademicPage() {
 
       {/* Tombol Buat KB Baru */}
       <section className="mb-6">
-        <CreateModuleModal />
+        <CreateModuleModal existingSubjects={existingSubjects} />
       </section>
 
       {/* Daftar Semua KB per Matkul */}

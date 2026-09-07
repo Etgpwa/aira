@@ -33,22 +33,25 @@ interface ModuleItem {
 interface AddCourseScheduleModalProps {
     defaultSubject?: string;
     availableModules?: ModuleItem[];
+    existingSubjects?: string[];
     triggerButton?: React.ReactNode;
 }
 
 export default function AddCourseScheduleModal({
     defaultSubject = '',
     availableModules = [],
+    existingSubjects: propExistingSubjects = [],
     triggerButton
 }: AddCourseScheduleModalProps) {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Ambil daftar unik mata kuliah dari modul yang sudah ada
+    // Ambil daftar unik mata kuliah dari prop dan modul yang sudah ada
     const existingSubjects = useMemo(() => {
-        return Array.from(
-            new Set(availableModules.map((m) => m.subject_name?.trim()).filter(Boolean))
-        );
-    }, [availableModules]);
+        const set = new Set<string>();
+        propExistingSubjects.forEach((s) => s && set.add(s.trim()));
+        availableModules.forEach((m) => m.subject_name && set.add(m.subject_name.trim()));
+        return Array.from(set);
+    }, [propExistingSubjects, availableModules]);
 
     const [subjectName, setSubjectName] = useState(defaultSubject || existingSubjects[0] || '');
     const [isCustomSubject, setIsCustomSubject] = useState(existingSubjects.length === 0);
@@ -75,9 +78,10 @@ export default function AddCourseScheduleModal({
             setErrorMessage('');
             setSuccessMessage('');
 
-            const subjects = Array.from(
-                new Set(availableModules.map((m) => m.subject_name?.trim()).filter(Boolean))
-            );
+            const set = new Set<string>();
+            propExistingSubjects.forEach((s) => s && set.add(s.trim()));
+            availableModules.forEach((m) => m.subject_name && set.add(m.subject_name.trim()));
+            const subjects = Array.from(set);
 
             const initialSubject = defaultSubject || subjects[0] || '';
             setSubjectName(initialSubject);
@@ -86,7 +90,7 @@ export default function AddCourseScheduleModal({
             const d = new Date().getDay();
             setDayOfWeek(d);
         }
-    }, [isOpen, defaultSubject, availableModules]);
+    }, [isOpen, defaultSubject, availableModules, propExistingSubjects]);
 
     // Quick duration handler (tambah durasi ke jam selesai)
     const setQuickDuration = (minutes: number) => {

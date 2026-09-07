@@ -175,32 +175,98 @@ export async function deleteCoursePlan(subjectName: string) {
 
     if (!subjectName?.trim()) throw new Error('Nama mata kuliah tidak valid');
 
-    const cleanSubject = subjectName.trim();
+    const cleanSubject = subjectName.trim().toLowerCase();
 
-    // 1. Hapus dari course_schedules
-    await supabase
+    // 1. Ambil & hapus dari course_schedules
+    const { data: scheds, error: fetchSchedErr } = await supabase
         .from('course_schedules')
-        .delete()
-        .eq('user_id', user.id)
-        .ilike('subject_name', cleanSubject);
+        .select('id, subject_name')
+        .eq('user_id', user.id);
+    if (fetchSchedErr) throw fetchSchedErr;
 
-    // 2. Hapus target mingguan dari course_weekly_targets
-    await supabase
+    const schedIds = (scheds || [])
+        .filter(s => s.subject_name?.trim().toLowerCase() === cleanSubject)
+        .map(s => s.id);
+    if (schedIds.length > 0) {
+        const { error: delSchedErr } = await supabase
+            .from('course_schedules')
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', schedIds);
+        if (delSchedErr) throw delSchedErr;
+    }
+
+    // 2. Ambil & hapus target mingguan dari course_weekly_targets
+    const { data: targets, error: fetchTargetsErr } = await supabase
         .from('course_weekly_targets')
-        .delete()
-        .eq('user_id', user.id)
-        .ilike('subject_name', cleanSubject);
+        .select('id, subject_name')
+        .eq('user_id', user.id);
+    if (fetchTargetsErr) throw fetchTargetsErr;
 
-    // 3. Lepas penugasan minggu dari course_modules
-    await supabase
+    const targetIds = (targets || [])
+        .filter(t => t.subject_name?.trim().toLowerCase() === cleanSubject)
+        .map(t => t.id);
+    if (targetIds.length > 0) {
+        const { error: delTargetErr } = await supabase
+            .from('course_weekly_targets')
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', targetIds);
+        if (delTargetErr) throw delTargetErr;
+    }
+
+    // 3. Ambil modul-modul KB milik mata kuliah ini
+    const { data: mods, error: fetchModsErr } = await supabase
         .from('course_modules')
-        .update({ week_number: null })
-        .eq('user_id', user.id)
-        .ilike('subject_name', cleanSubject);
+        .select('id, subject_name')
+        .eq('user_id', user.id);
+    if (fetchModsErr) throw fetchModsErr;
+
+    const modIds = (mods || [])
+        .filter(m => m.subject_name?.trim().toLowerCase() === cleanSubject)
+        .map(m => m.id);
+
+    if (modIds.length > 0) {
+        // Hapus soal kuis yang terikat ke modul-modul ini
+        const { error: delQuizByModErr } = await supabase
+            .from('course_quiz_questions')
+            .delete()
+            .eq('user_id', user.id)
+            .in('module_id', modIds);
+        if (delQuizByModErr) throw delQuizByModErr;
+
+        // Hapus modul-modul KB
+        const { error: delModErr } = await supabase
+            .from('course_modules')
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', modIds);
+        if (delModErr) throw delModErr;
+    }
+
+    // 4. Hapus soal kuis yang terikat langsung dengan subject_name ini jika ada sisa
+    const { data: quizzes, error: fetchQuizErr } = await supabase
+        .from('course_quiz_questions')
+        .select('id, subject_name')
+        .eq('user_id', user.id);
+    if (!fetchQuizErr && quizzes) {
+        const quizIds = quizzes
+            .filter(q => q.subject_name?.trim().toLowerCase() === cleanSubject)
+            .map(q => q.id);
+        if (quizIds.length > 0) {
+            await supabase
+                .from('course_quiz_questions')
+                .delete()
+                .eq('user_id', user.id)
+                .in('id', quizIds);
+        }
+    }
 
     revalidatePath('/academic');
     revalidatePath('/academic/schedule');
+    revalidatePath('/academic/event');
     revalidatePath('/productivity/agenda');
+    revalidatePath('/');
     return { success: true };
 }
 

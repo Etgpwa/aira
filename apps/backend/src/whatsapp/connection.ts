@@ -440,7 +440,11 @@ export const connectToWhatsApp = async () => {
                                     try {
                                         const cleanSender = from.split('@')[0].split(':')[0];
                                         const userId = await userService.getOrCreateUserByPhone(cleanSender);
-                                        const answer = await agendaQueryService.answerAgendaQuery(userId, combinedText);
+                                        const isBriefing = /briefing|daily\s*brief/i.test(combinedText);
+                                        const answer = isBriefing 
+                                            ? await cronService.generateDailyBriefingMessage(userId)
+                                            : await agendaQueryService.answerAgendaQuery(userId, combinedText);
+
                                         if (isSingleIntent) {
                                             finalReply = answer;
                                         } else {

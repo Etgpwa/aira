@@ -87,24 +87,37 @@ export class CronService {
      * Mendapatkan daftar nomor HP asli (bukan LID) dari env WHATSAPP_PHONE_NUMBER.
      * Format .env: "6287756987979,252093474578602" -> kita ambil angka < 15 digit saja (nomor HP), bukan LID panjang.
      */
+    /**
+     * Mendapatkan daftar nomor/JID target dari env WHATSAPP_PHONE_NUMBER.
+     * Format .env: "6287756987979,252093474578602"
+     * Mendukung pengiriman ke LID (jika tersedia) dan fallback/nomor HP standar.
+     */
     private getRealPhoneNumbers(): string[] {
         const raw = process.env.WHATSAPP_PHONE_NUMBER || '';
         const items = raw.split(',').map(n => n.trim()).filter(Boolean);
 
-        // Jika ada LID, prioritaskan LID agar pesan masuk ke thread aktif WhatsApp pengguna
         const lid = items.find(n => {
             const digits = n.replace(/[^0-9]/g, '');
             return n.endsWith('@lid') || (digits.length >= 15 && !digits.startsWith('62') && !digits.startsWith('08'));
         });
 
+        const phone = items.find(n => {
+            const digits = n.replace(/[^0-9]/g, '');
+            return digits.length > 0 && digits.length <= 15 && (digits.startsWith('62') || digits.startsWith('08'));
+        });
+
+        const targets: string[] = [];
         if (lid) {
-            const clean = lid.replace(/[^0-9]/g, '');
-            return [`${clean}@lid`];
+            targets.push(`${lid.replace(/[^0-9]/g, '')}@lid`);
+        }
+        if (phone) {
+            const cleanPhone = phone.replace(/[^0-9]/g, '');
+            const normalized = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone;
+            targets.push(`${normalized}@s.whatsapp.net`);
         }
 
-        return items
-            .map(n => n.trim().replace(/[^0-9]/g, ''))
-            .filter(n => n.length > 0 && n.length <= 15);
+        if (targets.length > 0) return targets;
+        return items.map(n => n.replace(/[^0-9]/g, '')).filter(Boolean);
     }
 
     /**
@@ -162,15 +175,69 @@ export class CronService {
         return false;
     }
 
-    private async runDailyBriefing() {
+    /**
+     * Menyusun pesan Daily Briefing lengkap untuk seorang user.
+     * Bisa dipanggil kapan saja oleh Cron maupun saat user meminta via WhatsApp.
+     */
+    public async generateDailyBriefingMessage(userId: string): Promise<string> {
+        const context = await routineService.calculateDailyContext(userId);
+        const therapySchedule = await therapyService.answerScheduleQuery(userId, 'jadwal terapi hari ini');
+
+        const question = "Tolong kasih daily briefing: jadwalku hari ini apa aja dan tugas yang belum selesai. Buat format berbaris dengan bullet (•), pisahkan antar kategori dengan enter 1 kali saja, jangan gunakan emoji sama sekali, dan urutkan dari yang paling urgent.";
+        const briefing = await agendaQueryService.answerAgendaQuery(userId, question);
+
+        let fullMessage = `DAILY BRIEFING (${context.dayName.toUpperCase()})\n`;
+        if (context.isWorkDay) {
+            fullMessage += `\nSERAGAM HARI INI:\n• ${context.uniform}\n`;
+            if (context.department) {
+                fullMessage += `\nKONTEN MEDSOS HARI INI:\n• Take 1 Video Story: Departemen ${context.department}\n`;
+            }
+        }
+
+        if (briefing) {
+            fullMessage += `\n${briefing}\n`;
+        }
+
+        if (therapySchedule && !therapySchedule.includes('Belum ada jadwal')) {
+            fullMessage += `\n${therapySchedule}\n`;
+        }
+
+        // Injeksi Kuis Harian dari Matkul Kemarin
         try {
-            // Guard: Daily Briefing hanya boleh dijalankan maksimal 1x per hari kalender
+            const yesterdayClasses = await academicService.getYesterdayCourseSchedule(userId);
+            if (yesterdayClasses && yesterdayClasses.length > 0) {
+                for (const course of yesterdayClasses) {
+                    const q = await quizService.getQuizQuestions(userId, course.subject_name, 5);
+                    if (q && q.length > 0) {
+                        await quizService.markQuestionsAsked(q.map(x => x.id));
+                        const currentWk = await academicService.getCurrentWeekNumber(userId);
+                        const qMsg = quizService.formatQuizMessage(course.subject_name, q, currentWk);
+                        fullMessage += `\n---\n${qMsg}\n`;
+
+                        if (q.length < 5) {
+                            await quizService.resetAskedFlags(userId, course.subject_name);
+                        }
+                        break;
+                    } else {
+                        await quizService.resetAskedFlags(userId, course.subject_name);
+                    }
+                }
+            }
+        } catch (qErr) {
+            console.error("Error cek kuis:", qErr);
+        }
+
+        return fullMessage.trim();
+    }
+
+    public async runDailyBriefing(force: boolean = false) {
+        try {
+            // Guard: Daily Briefing hanya boleh dijalankan maksimal 1x per hari kalender kecuali forced
             const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
-            if (this.lastDailyBriefingDate === todayStr) {
+            if (!force && this.lastDailyBriefingDate === todayStr) {
                 console.log(`ℹ️ Daily Briefing sudah dikirim hari ini (${todayStr}), lewati duplikasi.`);
                 return;
             }
-            this.lastDailyBriefingDate = todayStr;
 
             const realNumbers = this.getRealPhoneNumbers();
             if (realNumbers.length === 0) {
@@ -179,64 +246,22 @@ export class CronService {
             }
 
             const { data: users } = await supabase.from('user_settings').select('user_id, phone_number');
-            if (!users) return;
+            if (!users || users.length === 0) return;
 
+            let anySent = false;
             for (const user of users) {
-                const context = await routineService.calculateDailyContext(user.user_id);
-                const therapySchedule = await therapyService.answerScheduleQuery(user.user_id, 'jadwal terapi hari ini');
-
-                const question = "Tolong kasih daily briefing: jadwalku hari ini apa aja dan tugas yang belum selesai. Buat format berbaris dengan bullet (•), pisahkan antar kategori dengan enter 1 kali saja, jangan gunakan emoji sama sekali, dan urutkan dari yang paling urgent.";
-                const briefing = await agendaQueryService.answerAgendaQuery(user.user_id, question);
-                
-                let fullMessage = `DAILY BRIEFING (${context.dayName.toUpperCase()})\n`;
-                if (context.isWorkDay) {
-                    fullMessage += `\nSERAGAM HARI INI:\n• ${context.uniform}\n`;
-                    if (context.department) {
-                        fullMessage += `\nKONTEN MEDSOS HARI INI:\n• Take 1 Video Story: Departemen ${context.department}\n`;
-                    }
-                }
-
-                if (briefing) {
-                    fullMessage += `\n${briefing}\n`;
-                }
-
-                if (therapySchedule && !therapySchedule.includes('Belum ada jadwal')) {
-                    fullMessage += `\n${therapySchedule}\n`;
-                }
-
-                // Injeksi Kuis Harian dari Matkul Kemarin
-                try {
-                    const yesterdayClasses = await academicService.getYesterdayCourseSchedule(user.user_id);
-                    if (yesterdayClasses && yesterdayClasses.length > 0) {
-                        // Ambil soal dari matkul-matkul tersebut
-                        for (const course of yesterdayClasses) {
-                            const q = await quizService.getQuizQuestions(user.user_id, course.subject_name, 5);
-                            if (q && q.length > 0) {
-                                // Tandai soal yang akan dikirim ini already_asked = true
-                                await quizService.markQuestionsAsked(q.map(x => x.id));
-                                
-                                const currentWk = await academicService.getCurrentWeekNumber(user.user_id);
-                                const qMsg = quizService.formatQuizMessage(course.subject_name, q, currentWk);
-                                fullMessage += `\n---\n${qMsg}\n`;
-                                
-                                // Jika stok soal kurang dari 5 (misal sisa 2), reset soal matkul ini
-                                if (q.length < 5) {
-                                    await quizService.resetAskedFlags(user.user_id, course.subject_name);
-                                }
-                                break; // Hanya kirim 1 kuis per hari untuk matkul pertama yang ada soalnya (biar ngga kepanjangan)
-                            } else {
-                                // Jika tidak ada soal sisa, coba reset sekali, tapi tidak query ulang hari ini (besok baru keluar)
-                                await quizService.resetAskedFlags(user.user_id, course.subject_name);
-                            }
-                        }
-                    }
-                } catch (qErr) {
-                    console.error("Error cek kuis:", qErr);
-                }
+                const fullMessage = await this.generateDailyBriefingMessage(user.user_id);
+                if (!fullMessage) continue;
 
                 for (const num of realNumbers) {
-                    await this.safeSendMessage(num, fullMessage.trim());
+                    const ok = await this.safeSendMessage(num, fullMessage);
+                    if (ok) anySent = true;
                 }
+            }
+
+            if (anySent) {
+                this.lastDailyBriefingDate = todayStr;
+                console.log(`✅ Daily Briefing berhasil dikirim (${todayStr}).`);
             }
         } catch (error) {
             console.error("Error saat Daily Briefing:", error);

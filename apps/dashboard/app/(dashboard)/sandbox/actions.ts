@@ -85,6 +85,14 @@ export interface SimulationResult {
     }>;
     simulatedImpacts: SimulatedImpact[];
     is_simulated: boolean;
+    ocrInfo?: {
+        imageType: 'RECEIPT' | 'THERAPY_SCHEDULE' | 'COURSE_SCHEDULE' | 'QUIZ_QUESTIONS' | 'OTHER';
+        merchant?: string | null;
+        totalAmount?: number;
+        category?: string;
+        description?: string;
+        rawDetails?: string;
+    };
 }
 
 export interface TrainingRule {
@@ -489,16 +497,165 @@ ATURAN STRICT MENJAWAB (HARUS PATUH):
     });
 }
 
+async function geminiVision(base64: string, mimeType: string, prompt: string): Promise<string> {
+    return await callGeminiWithRotation(async (ai) => {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.5-flash',
+            contents: [
+                { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
+                prompt
+            ],
+            config: {
+                temperature: 0.1
+            }
+        });
+        return (response.text || '').trim();
+    });
+}
+
 // ────────────────────────────────────────────────────────────────
-// Action Utama: Simulasi Chat Karen (Dry-Run dengan Data Asli Lengkap)
+// Action Utama: Simulasi Chat Karen (Dry-Run dengan Data Asli Lengkap + OCR)
 // ────────────────────────────────────────────────────────────────
 export async function simulateKarenChat(
     message: string,
-    history: Array<{ sender: 'user' | 'assistant'; text: string }> = []
+    history: Array<{ sender: 'user' | 'assistant'; text: string }> = [],
+    imageBase64?: string,
+    mimeType?: string
 ): Promise<SimulationResult> {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User belum login');
+
+    let ocrInfo: SimulationResult['ocrInfo'] = undefined;
+
+    // ── PROSES OCR DENGAN GEMINI VISION JIKA ADA GAMBAR ──────────
+    if (imageBase64) {
+        try {
+            const classifierPrompt = `Foto ini termasuk kategori apa? Pilih SATU saja dari daftar berikut yang paling akurat: RECEIPT | THERAPY_SCHEDULE | COURSE_SCHEDULE | QUIZ_QUESTIONS | OTHER. Kembalikan HANYA KATA tersebut tanpa penjelasan.`;
+            const classifierResponse = await geminiVision(imageBase64, mimeType || 'image/jpeg', classifierPrompt);
+            const imageType = classifierResponse.trim().toUpperCase() as 'RECEIPT' | 'THERAPY_SCHEDULE' | 'COURSE_SCHEDULE' | 'QUIZ_QUESTIONS' | 'OTHER';
+
+            if (imageType === 'RECEIPT') {
+                const receiptPrompt = `Kamu sistem OCR struk belanja. Baca gambar struk dan ekstrak info penting dalam format JSON valid TANPA MARKDOWN BACKTICKS:
+{
+  "merchant": string | null,
+  "total_amount": number,
+  "currency": string,
+  "category": string,
+  "description": string,
+  "reply": string
+}
+Aturan untuk field "reply": singkat 1 kalimat, casual, langsung ke intinya (contoh: "-87rb belanja Indomaret dicatat 🧾"). JANGAN gunakan kalimat panjang atau basa-basi.`;
+
+                const receiptRaw = await geminiVision(imageBase64, mimeType || 'image/jpeg', receiptPrompt);
+                const cleanedJson = receiptRaw.replace(/```json/gi, '').replace(/```/gi, '').trim();
+                let ocrResult: any = null;
+                try {
+                    ocrResult = JSON.parse(cleanedJson);
+                } catch {
+                    const firstB = cleanedJson.indexOf('{');
+                    const lastB = cleanedJson.lastIndexOf('}');
+                    if (firstB !== -1 && lastB !== -1 && lastB > firstB) {
+                        ocrResult = JSON.parse(cleanedJson.substring(firstB, lastB + 1));
+                    }
+                }
+
+                if (ocrResult && ocrResult.total_amount > 0) {
+                    ocrInfo = {
+                        imageType: 'RECEIPT',
+                        merchant: ocrResult.merchant,
+                        totalAmount: ocrResult.total_amount,
+                        category: ocrResult.category,
+                        description: ocrResult.description,
+                        rawDetails: `Merchant: ${ocrResult.merchant || '-'} · Total: Rp ${Number(ocrResult.total_amount).toLocaleString('id-ID')} · Kategori: ${ocrResult.category || '-'}`
+                    };
+
+                    if (message?.trim()) {
+                        message = `[SISTEM: User mengunggah gambar struk. Hasil OCR: Total ${ocrResult.total_amount}, Merchant: ${ocrResult.merchant || '-'}, Kategori: ${ocrResult.category || '-'}, Deskripsi: ${ocrResult.description || '-'}. \nTAPI, instruksi user di bawah ini adalah SUMBER KEBENARAN UTAMA (Prioritas Tinggi). Catat sesuai teks user jika ada konflik nominal/keterangan dengan OCR.]\n\nInstruksi User: ${message}`;
+                    } else {
+                        // Kasus foto struk tanpa caption teks (otomatis catat belanja seperti WhatsApp)
+                        return {
+                            reply: ocrResult.reply || `-${Number(ocrResult.total_amount).toLocaleString('id-ID')} ${ocrResult.merchant ? ocrResult.merchant : 'belanja'} dicatat 🧾`,
+                            intents: [{
+                                intent: 'ADD_EXPENSE',
+                                entities: {
+                                    amount: ocrResult.total_amount,
+                                    merchant: ocrResult.merchant,
+                                    category: ocrResult.category,
+                                    description: ocrResult.description || `Struk ${ocrResult.merchant || ''}`,
+                                    account: 'Cash'
+                                }
+                            }],
+                            simulatedImpacts: [{
+                                type: 'Pencatatan Pengeluaran (OCR)',
+                                description: `Simulasi pengeluaran Rp ${Number(ocrResult.total_amount).toLocaleString('id-ID')} (${ocrResult.merchant || 'Belanja'}) dari rekening Cash`
+                            }],
+                            is_simulated: true,
+                            ocrInfo
+                        };
+                    }
+                }
+            } else if (imageType === 'THERAPY_SCHEDULE') {
+                ocrInfo = {
+                    imageType: 'THERAPY_SCHEDULE',
+                    rawDetails: 'Matriks tabel jadwal terapi anak bulanan (TSD & Okupasi/OT)'
+                };
+                return {
+                    reply: 'oke, jadwal terapi TSD & OT periode Aktif berhasil dianalisis dari foto (Simulasi OCR) ✓\n\nKamu bisa tanya kapan saja:\n• jadwal terapi hari ini\n• sekarang tsd siapa aja?\n• jadwal okupasi besok',
+                    intents: [{ intent: 'QUERY_THERAPY_SCHEDULE', entities: {} }],
+                    simulatedImpacts: [{
+                        type: 'Jadwal Terapi (OCR)',
+                        description: 'Simulasi deteksi matriks sesi terapis TSD berinisial warna & giliran sesi Okupasi (OT)'
+                    }],
+                    is_simulated: true,
+                    ocrInfo
+                };
+            } else if (imageType === 'COURSE_SCHEDULE') {
+                ocrInfo = {
+                    imageType: 'COURSE_SCHEDULE',
+                    rawDetails: 'Tabel grid jadwal mata kuliah mingguan'
+                };
+                return {
+                    reply: 'oke, jadwal kuliah berhasil dianalisis dari foto (Simulasi OCR) ✓',
+                    intents: [{ intent: 'ADD_SCHEDULE', entities: {} }],
+                    simulatedImpacts: [{
+                        type: 'Jadwal Kuliah (OCR)',
+                        description: 'Simulasi ekstraksi jadwal mata kuliah mingguan ke tabel perkuliahan'
+                    }],
+                    is_simulated: true,
+                    ocrInfo
+                };
+            } else if (imageType === 'QUIZ_QUESTIONS') {
+                ocrInfo = {
+                    imageType: 'QUIZ_QUESTIONS',
+                    rawDetails: 'Dokumen / lembar soal materi kuliah untuk bank soal'
+                };
+                const subj = message?.trim() || 'Materi Perkuliahan';
+                return {
+                    reply: `oke, butir soal dari ${subj} berhasil diekstrak dan siap disimpan ke bank soal (Simulasi OCR) ✓`,
+                    intents: [{ intent: 'ADD_TASK', entities: { subject: subj } }],
+                    simulatedImpacts: [{
+                        type: 'Bank Soal Kuis (OCR)',
+                        description: `Simulasi ekstraksi butir soal pilihan ganda / essay untuk ${subj}`
+                    }],
+                    is_simulated: true,
+                    ocrInfo
+                };
+            } else {
+                ocrInfo = {
+                    imageType: 'OTHER',
+                    rawDetails: 'Gambar umum / dokumen lainnya'
+                };
+                message = `[SISTEM: User mengunggah gambar/foto]. ` + (message?.trim() ? `Pesan user: ${message}` : `Jelaskan isi gambar ini secara singkat.`);
+            }
+        } catch (ocrErr: any) {
+            console.error('Error Media OCR in Sandbox:', ocrErr);
+            ocrInfo = {
+                imageType: 'OTHER',
+                rawDetails: `Gagal memproses OCR: ${ocrErr?.message || 'Vision error'}`
+            };
+        }
+    }
 
     // 1. Tarik seluruh konteks data asli pengguna (Read-Only)
     const [
@@ -911,7 +1068,8 @@ Analisis pesan di atas dan kembalikan JSON.
         reply,
         intents: detectedIntents,
         simulatedImpacts,
-        is_simulated: true
+        is_simulated: true,
+        ocrInfo
     };
 }
 

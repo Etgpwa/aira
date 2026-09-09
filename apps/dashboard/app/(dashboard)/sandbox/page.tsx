@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { 
     Bot, Send, Sparkles, BookOpen, Trash2, CheckCircle2, 
     AlertCircle, RefreshCw, X, ChevronDown, ChevronUp, 
-    Layers, ArrowRight, ArrowLeft, ShieldCheck, PlusCircle, Check, RotateCcw
+    Layers, ArrowRight, ArrowLeft, ShieldCheck, PlusCircle, Check, RotateCcw,
+    Paperclip, ImageIcon, ScanText
 } from 'lucide-react';
 import { 
     simulateKarenChat, saveTrainingRule, getTrainingRules, 
@@ -17,6 +18,7 @@ interface ChatMessage {
     id: string;
     sender: 'user' | 'assistant' | 'system_divider';
     text: string;
+    image?: string;
     timestamp: string;
     simulation?: SimulationResult;
     promotedRule?: {
@@ -50,6 +52,8 @@ export default function SandboxPage() {
     ]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [rules, setRules] = useState<TrainingRule[]>([]);
     const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
     const [correctionTarget, setCorrectionTarget] = useState<{ userText: string; detectedIntents: string[] } | null>(null);
@@ -83,21 +87,73 @@ export default function SandboxPage() {
         setTimeout(() => setFeedbackToast(null), 3500);
     };
 
-    const handleSendMessage = async (customText?: string) => {
-        const textToSend = customText || inputText;
-        if (!textToSend.trim() || isLoading) return;
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
 
-        const userMsgId = Date.now().toString();
+        // Kompresi client-side via canvas (maks 1200px, JPEG 0.82)
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+                const maxDim = 1200;
+                let width = img.width;
+                let height = img.height;
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                    const rawBase64 = compressedDataUrl.split(',')[1];
+                    setSelectedImage({
+                        base64: rawBase64,
+                        mimeType: 'image/jpeg',
+                        previewUrl: compressedDataUrl
+                    });
+                } else {
+                    const raw = (event.target?.result as string).split(',')[1];
+                    setSelectedImage({
+                        base64: raw,
+                        mimeType: file.type || 'image/jpeg',
+                        previewUrl: event.target?.result as string
+                    });
+                }
+            };
+            img.src = event.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const handleSendMessage = async (customText?: string) => {
+        const textToSend = customText !== undefined ? customText : inputText;
+        const currentImage = selectedImage;
+
+        if (!textToSend.trim() && !currentImage) return;
+
         const userMsg: ChatMessage = {
-            id: userMsgId,
+            id: Date.now().toString(),
             sender: 'user',
             text: textToSend.trim(),
+            image: currentImage?.previewUrl,
             timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
         };
 
         const updatedMessages = [...messages, userMsg];
         setMessages(updatedMessages);
         if (!customText) setInputText('');
+        setSelectedImage(null);
         setIsLoading(true);
 
         try {
@@ -118,7 +174,12 @@ export default function SandboxPage() {
                     text: m.text
                 }));
 
-            const result = await simulateKarenChat(textToSend.trim(), history);
+            const result = await simulateKarenChat(
+                textToSend.trim(), 
+                history, 
+                currentImage?.base64, 
+                currentImage?.mimeType
+            );
 
             const aiMsg: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -422,7 +483,12 @@ export default function SandboxPage() {
                                         : 'bg-surface border border-surface-variant text-on-surface rounded-tl-xs'
                                     }
                                 `}>
-                                    <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                                    {msg.image && (
+                                        <div className="mb-2 rounded-xl overflow-hidden border border-white/20 shadow-sm max-w-[260px]">
+                                            <img src={msg.image} alt="Upload OCR" className="w-full h-auto object-cover max-h-52" />
+                                        </div>
+                                    )}
+                                    {msg.text && <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>}
                                     <span className={`text-[10px] block mt-1 text-right ${isUser ? 'text-white/70' : 'text-secondary'}`}>
                                         {msg.timestamp}
                                     </span>
@@ -432,6 +498,23 @@ export default function SandboxPage() {
                             {/* ── Breakdown Intent & Simulasi untuk Balasan Karen ── */}
                             {!isUser && sim && (
                                 <div className="mt-1.5 ml-9 max-w-[88%] sm:max-w-[76%] w-full bg-surface border border-primary/20 rounded-xl p-2.5 shadow-sm text-xs space-y-1.5">
+                                    {/* Hasil Deteksi OCR jika ada */}
+                                    {sim.ocrInfo && (
+                                        <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-[11px] space-y-1">
+                                            <div className="flex items-center gap-1 font-bold text-primary">
+                                                <ScanText className="w-3.5 h-3.5" />
+                                                <span>Hasil Analisis OCR: {sim.ocrInfo.imageType}</span>
+                                            </div>
+                                            {sim.ocrInfo.totalAmount ? (
+                                                <p className="text-on-surface font-semibold">
+                                                    Nominal: <span className="text-primary font-bold">Rp {Number(sim.ocrInfo.totalAmount).toLocaleString('id-ID')}</span> · Merchant: {sim.ocrInfo.merchant || '-'} · Kategori: {sim.ocrInfo.category || '-'}
+                                                </p>
+                                            ) : sim.ocrInfo.rawDetails ? (
+                                                <p className="text-secondary font-medium">{sim.ocrInfo.rawDetails}</p>
+                                            ) : null}
+                                        </div>
+                                    )}
+
                                     <div className="flex items-center justify-between border-b border-surface-variant pb-1">
                                         <div className="flex items-center gap-1 text-primary font-bold text-[11px]">
                                             <Sparkles className="w-3 h-3" />
@@ -516,6 +599,30 @@ export default function SandboxPage() {
                     ))}
                 </div>
 
+                {/* Preview Foto yang Dipilih untuk OCR */}
+                {selectedImage && (
+                    <div className="mb-2 flex items-center gap-2 p-2 bg-surface-container rounded-xl border border-surface-variant w-fit shadow-xs animate-in fade-in">
+                        <img 
+                            src={selectedImage.previewUrl} 
+                            alt="Preview" 
+                            className="w-10 h-10 rounded-lg object-cover border border-outline/20" 
+                        />
+                        <div className="text-xs pr-1">
+                            <p className="font-bold text-on-surface flex items-center gap-1">
+                                <ImageIcon className="w-3.5 h-3.5 text-primary" /> Foto Terpilih
+                            </p>
+                            <p className="text-[10px] text-secondary">Siap diuji OCR</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedImage(null)}
+                            className="w-6 h-6 rounded-full bg-surface-container-high hover:bg-red-500/10 hover:text-red-500 flex items-center justify-center text-secondary transition-colors"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                )}
+
                 {/* Input Form */}
                 <form 
                     onSubmit={(e) => {
@@ -524,17 +631,37 @@ export default function SandboxPage() {
                     }}
                     className="flex items-center gap-2"
                 >
+                    <input 
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isLoading}
+                        className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-95 flex-shrink-0 ${
+                            selectedImage
+                                ? 'bg-primary/10 border-primary text-primary shadow-xs'
+                                : 'bg-surface-container border-surface-variant/80 text-secondary hover:text-on-surface hover:bg-surface-container-high'
+                        }`}
+                        title="Upload Foto / Struk untuk tes OCR"
+                    >
+                        <Paperclip className="w-4 h-4" />
+                    </button>
                     <input
                         type="text"
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
-                        placeholder="Ketik instruksi chat di sini..."
+                        placeholder={selectedImage ? "Tambahkan instruksi/caption (opsional)..." : "Ketik instruksi atau lampirkan foto struk/jadwal..."}
                         className="flex-1 bg-surface-container border border-surface-variant/80 rounded-full px-4 py-2.5 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all shadow-inner"
                         disabled={isLoading}
                     />
                     <button
                         type="submit"
-                        disabled={!inputText.trim() || isLoading}
+                        disabled={(!inputText.trim() && !selectedImage) || isLoading}
                         className="w-10 h-10 rounded-full bg-primary text-white font-semibold flex items-center justify-center hover:bg-primary-dark transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md active:scale-95 flex-shrink-0"
                     >
                         <Send className="w-4 h-4" />

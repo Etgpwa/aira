@@ -4,7 +4,7 @@ import { memoryManager } from './memory.manager';
 import { supabase } from '../supabase/supabase.client';
 
 export interface SingleIntent {
-    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'DELETE_DEBT' | 'DELETE_TRANSACTION' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'UPDATE_TASK_PROGRESS' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'ADD_REMINDER' | 'RESCHEDULE_REMINDER' | 'DELETE_REMINDER' | 'UPDATE_LAST_TRANSACTION' | 'CANCEL_LAST_TRANSACTION' | 'QUERY_ROUTINE' | 'UPDATE_ROUTINE' | 'QUERY_THERAPY_SCHEDULE' | 'SET_SEMESTER_START' | 'QUERY_COURSE_SCHEDULE' | 'ADD_COURSE_TARGET' | 'COMPLETE_COURSE_WEEK' | 'QUERY_COURSE_PROGRESS' | 'CHITCHAT' | 'UNKNOWN';
+    intent: 'ADD_EXPENSE' | 'ADD_INCOME' | 'SET_BALANCE' | 'SET_BUDGET' | 'ADD_DEBT' | 'ADD_RECEIVABLE' | 'PAY_DEBT' | 'DELETE_DEBT' | 'DELETE_TRANSACTION' | 'CREATE_GOAL' | 'TOPUP_GOAL' | 'DELETE_GOAL' | 'QUERY_FINANCE' | 'ADD_TASK' | 'COMPLETE_TASK' | 'UPDATE_TASK_PROGRESS' | 'DELETE_TASK' | 'ADD_SCHEDULE' | 'DELETE_SCHEDULE' | 'QUERY_AGENDA' | 'ADD_REMINDER' | 'RESCHEDULE_REMINDER' | 'DELETE_REMINDER' | 'UPDATE_LAST_TRANSACTION' | 'CANCEL_LAST_TRANSACTION' | 'QUERY_ROUTINE' | 'UPDATE_ROUTINE' | 'QUERY_THERAPY_SCHEDULE' | 'SET_SEMESTER_START' | 'QUERY_COURSE_SCHEDULE' | 'ADD_COURSE_TARGET' | 'COMPLETE_COURSE_WEEK' | 'QUERY_COURSE_PROGRESS' | 'LOG_HABIT' | 'UNDO_HABIT_LOG' | 'QUERY_HABIT' | 'CHITCHAT' | 'UNKNOWN';
     entities: {
         amount: number | null;
         currency: string | null;
@@ -21,6 +21,9 @@ export interface SingleIntent {
         end_time?: string | null;
         semester_start_date?: string | null;
         week_number?: number | null;
+        habit_type?: 'WAKE_UP' | 'SLEEP' | 'START_WORK' | 'STOP_WORK' | 'START_STUDY' | 'STOP_STUDY' | 'EXERCISE' | 'TIME_SINK' | null;
+        custom_label?: string | null;
+        duration_minutes?: number | null;
     };
 }
 

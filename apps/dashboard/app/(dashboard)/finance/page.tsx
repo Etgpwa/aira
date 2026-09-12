@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
+import Link from 'next/link';
 import { Wallet, Target, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
 import AddTransactionModal from './components/AddTransactionModal';
 import TransactionHistoryList from './components/TransactionHistoryList';
@@ -17,6 +18,7 @@ export default async function FinancePage() {
   let transactions: any[] = [];
   let debts: any[] = [];
   let budgetsList: any[] = [];
+  let goals: any[] = [];
   let totalBalance = 0;
 
   if (userId) {
@@ -24,7 +26,7 @@ export default async function FinancePage() {
     const currentYear = new Date().getFullYear();
     const startOfMonth = new Date(currentYear, currentMonth - 1, 1).toISOString();
 
-    const [accsRes, catsRes, txsRes, dbtsRes, bgtsRes] = await Promise.all([
+    const [accsRes, catsRes, txsRes, dbtsRes, bgtsRes, goalsRes] = await Promise.all([
       supabase.from('bank_accounts').select('*').eq('user_id', userId).order('balance', { ascending: false }),
       supabase.from('transaction_categories').select('*').eq('user_id', userId).order('name', { ascending: true }),
       supabase
@@ -45,12 +47,18 @@ export default async function FinancePage() {
         .eq('user_id', userId)
         .eq('month', currentMonth)
         .eq('year', currentYear),
+      supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('target_amount', { ascending: false }),
     ]);
 
     accounts = accsRes.data || [];
     categories = catsRes.data || [];
     transactions = txsRes.data || [];
     debts = dbtsRes.data || [];
+    goals = goalsRes.data || [];
     
     totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance), 0);
 
@@ -121,6 +129,51 @@ export default async function FinancePage() {
                 ))}
                 {accounts.length === 0 && <p className="text-sm text-secondary text-center py-2">Belum ada akun.</p>}
               </div>
+            </div>
+          </section>
+
+          {/* Tabungan (Goals) Summary */}
+          <section className="mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
+                <Target className="w-5 h-5 text-primary" /> Tabungan
+              </h3>
+              <Link href="/finance/goals" className="text-primary text-sm font-bold flex items-center hover:opacity-80 transition-opacity">
+                Lihat Semua <ChevronRight className="w-4 h-4 ml-1" />
+              </Link>
+            </div>
+            
+            <div className="bg-surface-bright p-5 rounded-[24px] border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)]">
+              {goals.length === 0 ? (
+                <p className="text-sm text-secondary text-center py-2">Belum ada target tabungan.</p>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="flex justify-between items-center pb-3 border-b border-surface-variant">
+                    <span className="text-sm font-medium text-secondary">Total Terkumpul</span>
+                    <span className="font-extrabold text-primary text-lg">
+                      {formatRupiah(goals.reduce((sum, g) => sum + Number(g.current_amount || 0), 0))}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {goals.slice(0, 3).map(goal => {
+                      const current = Number(goal.current_amount || 0);
+                      const target = Number(goal.target_amount || 0);
+                      const percent = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+                      return (
+                        <div key={goal.id}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="font-bold text-on-surface truncate pr-2">{goal.name}</span>
+                            <span className="text-primary font-bold">{percent}%</span>
+                          </div>
+                          <div className="w-full bg-surface-variant rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full bg-primary rounded-full" style={{ width: `${percent}%` }}></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

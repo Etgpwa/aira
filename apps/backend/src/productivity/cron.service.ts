@@ -66,6 +66,14 @@ export class CronService {
         }, {
             timezone: 'Asia/Jakarta'
         }));
+
+        // 6. Habit Check-in (Jalan jam 19:00 malam setiap hari)
+        this.tasks.push(cron.schedule('0 19 * * *', async () => {
+            console.log('⏰ Menjalankan Habit Check-in 19:00...');
+            await this.runHabitCheckin();
+        }, {
+            timezone: 'Asia/Jakarta'
+        }));
     }
 
     /** Menghentikan semua task cron jika diperlukan */
@@ -442,6 +450,18 @@ export class CronService {
             }
         } catch (error) {
             console.error("Error saat Debt Reminders:", error);
+        }
+    }
+
+    private async runHabitCheckin() {
+        try {
+            const targets = this.getRealPhoneNumbers();
+            for (const target of targets) {
+                const message = "[check-in 19:00]\nSudah jam 19:00 nih! Sekarang lagi ngapain atau mau ngapain?";
+                await this.safeSendMessage(target, message);
+            }
+        } catch (error) {
+            console.error('❌ Error saat Habit Check-in:', error);
         }
     }
 }

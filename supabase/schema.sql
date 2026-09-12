@@ -277,3 +277,47 @@ CREATE POLICY "Users can only access their own ai training rules" ON ai_training
 -- (Optional) Default Seed Data for Categories (bisa dijalankan via dashboard)
 -- Kita akan isi nanti ketika backend mulai jalan dan user mendaftar.
 
+-- ==========================================
+-- 18. Habit Tracker Tables
+-- ==========================================
+
+-- Table: habit_logs
+CREATE TABLE IF NOT EXISTS habit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  habit_type TEXT NOT NULL CHECK (habit_type IN (
+    'WAKE_UP',       -- bangun tidur
+    'SLEEP',         -- mulai tidur / pergi tidur
+    'START_WORK',    -- mulai kerja
+    'STOP_WORK',     -- selesai kerja
+    'START_STUDY',   -- mulai kuliah/belajar
+    'STOP_STUDY',    -- selesai kuliah/belajar
+    'EXERCISE',      -- olahraga/stretching
+    'TIME_SINK'      -- scroll medsos, nonton, game, dll (pemakan waktu)
+  )),
+  custom_label TEXT,          -- detail untuk TIME_SINK (misal: "scroll ig", "main ML")
+  logged_at TIMESTAMPTZ NOT NULL,  -- waktu aktual kejadian
+  duration_minutes INT,       -- opsional: durasi (misal olahraga 30 menit)
+  notes TEXT,                 -- catatan bebas
+  source TEXT DEFAULT 'WA' CHECK (source IN ('WA', 'PWA')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE habit_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage own habit_logs" ON habit_logs FOR ALL USING (auth.uid() = user_id);
+
+-- Table: habit_targets
+CREATE TABLE IF NOT EXISTS habit_targets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  habit_type TEXT NOT NULL,
+  target_time TIME,                 -- jam target (misal bangun jam 05:30)
+  target_duration_minutes INT,      -- durasi target (misal olahraga min 30 menit)
+  max_duration_minutes INT,         -- batas maksimal (misal screen time maks 60 menit/hari)
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE habit_targets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage own habit_targets" ON habit_targets FOR ALL USING (auth.uid() = user_id);

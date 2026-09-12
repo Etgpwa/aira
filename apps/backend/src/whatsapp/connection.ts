@@ -23,6 +23,8 @@ import { therapyService } from '../therapy/therapy.service';
 import { academicService } from '../academic/academic.service';
 import { quizService } from '../academic/quiz.service';
 import { askGeminiVision } from '../ai/gemini.client';
+import { habitService } from '../habit/habit.service';
+import { format } from 'date-fns';
 
 /**
  * Mencegah WhatsApp mengubah format angka/titik (misal 1.300.000) menjadi link biru/nomor HP
@@ -1343,6 +1345,74 @@ export const connectToWhatsApp = async () => {
                                     }
                                 }
 
+                                // Integrasi Database: LOG_HABIT
+                                if (singleIntent.intent === 'LOG_HABIT' && singleIntent.entities.habit_type) {
+                                    try {
+                                        const cleanSender = from.split('@')[0].split(':')[0];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        const loggedAt = singleIntent.entities.due_date || new Date().toISOString();
+                                        
+                                        await habitService.logHabit(
+                                            userId, 
+                                            singleIntent.entities.habit_type, 
+                                            loggedAt, 
+                                            singleIntent.entities.duration_minutes, 
+                                            singleIntent.entities.custom_label
+                                        );
+
+                                        if (singleIntent.entities.habit_type === 'START_WORK' || singleIntent.entities.habit_type === 'START_STUDY') {
+                                            const now = new Date(loggedAt);
+                                            await reminderService.createReminder({ userId, message: 'Istirahat sejenak 5 menit', remindAt: new Date(now.getTime() + 20 * 60000).toISOString() });
+                                            await reminderService.createReminder({ userId, message: 'Berdiri dan stretching', remindAt: new Date(now.getTime() + 25 * 60000).toISOString() });
+                                            await reminderService.createReminder({ userId, message: 'Minum air putih', remindAt: new Date(now.getTime() + 30 * 60000).toISOString() });
+                                        } else if (singleIntent.entities.habit_type === 'TIME_SINK') {
+                                            const now = new Date(loggedAt);
+                                            await reminderService.createReminder({ userId, message: 'Berdiri dan stretching', remindAt: new Date(now.getTime() + 45 * 60000).toISOString() });
+                                            await reminderService.createReminder({ userId, message: 'Minum air putih & cek waktu', remindAt: new Date(now.getTime() + 60 * 60000).toISOString() });
+                                        }
+                                    } catch (err) {
+                                        console.error('❌ Gagal log habit:', err);
+                                        finalReply = 'gagal mencatat habit, coba lagi';
+                                    }
+                                }
+
+                                // Integrasi Database: UNDO_HABIT_LOG
+                                if (singleIntent.intent === 'UNDO_HABIT_LOG') {
+                                    try {
+                                        const cleanSender = from.split('@')[0].split(':')[0];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        const undone = await habitService.undoLastHabitLog(userId);
+                                        
+                                        if (undone) {
+                                            const label = undone.custom_label || undone.habit_type.toLowerCase();
+                                            const msg = `oke, log "${label}" (${format(new Date(undone.logged_at), 'HH:mm')}) dibatalkan`;
+                                            if (isSingleIntent) finalReply = msg;
+                                            else finalReply = finalReply ? `${finalReply}\n\n${msg}` : msg;
+                                        } else {
+                                            const msg = `tidak ada log habit hari ini yang bisa dibatalkan`;
+                                            if (isSingleIntent) finalReply = msg;
+                                            else finalReply = finalReply ? `${finalReply}\n\n${msg}` : msg;
+                                        }
+                                    } catch (err) {
+                                        console.error('❌ Gagal undo habit:', err);
+                                        finalReply = 'gagal membatalkan log habit';
+                                    }
+                                }
+
+                                // Integrasi Database: QUERY_HABIT
+                                if (singleIntent.intent === 'QUERY_HABIT') {
+                                    try {
+                                        const cleanSender = from.split('@')[0].split(':')[0];
+                                        const userId = await userService.getOrCreateUserByPhone(cleanSender);
+                                        const summary = await habitService.queryHabitSummary(userId, combinedText);
+                                        
+                                        if (isSingleIntent) finalReply = summary;
+                                        else finalReply = finalReply ? `${finalReply}\n\n${summary}` : summary;
+                                    } catch (err) {
+                                        console.error('❌ Gagal query habit:', err);
+                                        finalReply = 'gagal menarik ringkasan habit';
+                                    }
+                                }
 
                                 }
                                 

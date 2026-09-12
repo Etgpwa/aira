@@ -59,3 +59,5 @@ Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:
 
 3. **Autentikasi Multi-User (Public SaaS)**
    Saat ini sistem diamankan dan ditujukan untuk pengguna *whitelist*. Dapat dikembangkan lebih lanjut menjadi aplikasi SaaS (*Software as a Service*) multi-pengguna dengan *login* bot independen.
+
+

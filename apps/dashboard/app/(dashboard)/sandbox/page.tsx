@@ -11,7 +11,7 @@ import {
 import { 
     simulateKarenChat, saveTrainingRule, getTrainingRules, 
     toggleTrainingRule, deleteTrainingRule, SimulationResult, 
-    TrainingRule 
+    TrainingRule, simulateHabitAdvisor, createReminderFromSuggestion, HabitAdviceResult
 } from './actions';
 
 interface ChatMessage {
@@ -21,6 +21,7 @@ interface ChatMessage {
     image?: string;
     timestamp: string;
     simulation?: SimulationResult;
+    advisorResult?: HabitAdviceResult;
     promotedRule?: {
         phrase: string;
         intents: string[];
@@ -50,6 +51,7 @@ export default function SandboxPage() {
             timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
         }
     ]);
+    const [mode, setMode] = useState<'whatsapp' | 'advisor'>('whatsapp');
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
@@ -157,39 +159,54 @@ export default function SandboxPage() {
         setIsLoading(true);
 
         try {
-            // ── CONTEXT BOUNDARY RESET LOGIC ─────────────────────────────
-            // Cari divider terakhir (Promote to Memory / Reset Sesi)
-            const lastDividerIndex = updatedMessages.map(m => m.sender).lastIndexOf('system_divider');
-            const activeHistoryMessages = lastDividerIndex >= 0 
-                ? updatedMessages.slice(lastDividerIndex + 1) 
-                : updatedMessages;
+            if (mode === 'advisor') {
+                const history = updatedMessages
+                    .filter(m => m.sender === 'user' || m.sender === 'assistant')
+                    .slice(-6)
+                    .map(m => ({ sender: m.sender as 'user' | 'assistant', text: m.text }));
+                const result = await simulateHabitAdvisor(textToSend.trim(), history);
+                
+                const aiMsg: ChatMessage = {
+                    id: (Date.now() + 1).toString(),
+                    sender: 'assistant',
+                    text: result.reply || '(Respon tanpa teks)',
+                    timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    advisorResult: result
+                };
+                setMessages(prev => [...prev, aiMsg]);
+            } else {
+                // ── CONTEXT BOUNDARY RESET LOGIC ─────────────────────────────
+                const lastDividerIndex = updatedMessages.map(m => m.sender).lastIndexOf('system_divider');
+                const activeHistoryMessages = lastDividerIndex >= 0 
+                    ? updatedMessages.slice(lastDividerIndex + 1) 
+                    : updatedMessages;
 
-            // Ambil pesan sebelum userMsg saat ini (maksimal 6 percakapan dalam sesi aktif)
-            const history = activeHistoryMessages
-                .slice(0, -1)
-                .filter(m => m.sender === 'user' || m.sender === 'assistant')
-                .slice(-6)
-                .map(m => ({
-                    sender: m.sender as 'user' | 'assistant',
-                    text: m.text
-                }));
+                const history = activeHistoryMessages
+                    .slice(0, -1)
+                    .filter(m => m.sender === 'user' || m.sender === 'assistant')
+                    .slice(-6)
+                    .map(m => ({
+                        sender: m.sender as 'user' | 'assistant',
+                        text: m.text
+                    }));
 
-            const result = await simulateKarenChat(
-                textToSend.trim(), 
-                history, 
-                currentImage?.base64, 
-                currentImage?.mimeType
-            );
+                const result = await simulateKarenChat(
+                    textToSend.trim(), 
+                    history, 
+                    currentImage?.base64, 
+                    currentImage?.mimeType
+                );
 
-            const aiMsg: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                sender: 'assistant',
-                text: result.reply || '(Respon tanpa teks)',
-                timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-                simulation: result
-            };
+                const aiMsg: ChatMessage = {
+                    id: (Date.now() + 1).toString(),
+                    sender: 'assistant',
+                    text: result.reply || '(Respon tanpa teks)',
+                    timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    simulation: result
+                };
 
-            setMessages(prev => [...prev, aiMsg]);
+                setMessages(prev => [...prev, aiMsg]);
+            }
         } catch (error: any) {
             const errorMsg: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -359,36 +376,71 @@ export default function SandboxPage() {
 
                         <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                                <h1 className="text-sm md:text-base font-bold text-on-surface whitespace-nowrap">Karen</h1>
+                                <h1 className="text-sm md:text-base font-bold text-on-surface whitespace-nowrap">
+                                    {mode === 'whatsapp' ? 'Karen' : 'Habit Advisor'}
+                                </h1>
                                 <span className="text-[9px] uppercase tracking-wider font-extrabold bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded-full flex-shrink-0">
-                                    Dry Run
+                                    {mode === 'whatsapp' ? 'WA Sim' : 'Advisor'}
                                 </span>
                             </div>
                             <p className="text-[10px] text-emerald-600 font-semibold truncate flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                AI Simulator Aktif
+                                {mode === 'whatsapp' ? 'AI Simulator Aktif' : 'Pakar Produktivitas'}
                             </p>
                         </div>
                     </div>
 
-                    {/* Right: Actions (Reset Sesi, Aturan, Clear) */}
-                    <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-                        <button
-                            onClick={handleManualResetContext}
-                            title="Reset ingatan percakapan sesi ini (mulai sesi bersih)"
-                            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-secondary hover:text-on-surface transition-all active:scale-95 flex items-center gap-1"
+                    {/* Center/Right: Mode Switcher */}
+                    <div className="hidden sm:flex bg-surface-container rounded-lg p-0.5 border border-surface-variant mr-auto ml-4">
+                        <button 
+                            onClick={() => { setMode('whatsapp'); handleClearChat(); }}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${mode === 'whatsapp' ? 'bg-surface text-on-surface shadow-sm' : 'text-secondary hover:text-on-surface'}`}
                         >
-                            <RotateCcw className="w-3.5 h-3.5 text-primary" />
-                            <span className="hidden sm:inline">Reset</span>
+                            WhatsApp
                         </button>
+                        <button 
+                            onClick={() => { setMode('advisor'); handleClearChat(); }}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${mode === 'advisor' ? 'bg-surface text-on-surface shadow-sm' : 'text-secondary hover:text-on-surface'}`}
+                        >
+                            Habit Advisor
+                        </button>
+                    </div>
 
-                        <button
-                            onClick={() => setIsRulesModalOpen(true)}
-                            className="px-2.5 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-on-surface transition-all active:scale-95 flex items-center gap-1"
-                        >
-                            <BookOpen className="w-3.5 h-3.5 text-primary" />
-                            <span>Aturan ({rules.length})</span>
-                        </button>
+                    {/* Right: Actions (Reset Sesi, Aturan, Clear) */}
+                    <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0 ml-auto">
+                        <div className="sm:hidden flex bg-surface-container rounded-lg p-0.5 border border-surface-variant mr-1">
+                            <button 
+                                onClick={() => { setMode('whatsapp'); handleClearChat(); }}
+                                className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${mode === 'whatsapp' ? 'bg-surface text-on-surface shadow-sm' : 'text-secondary hover:text-on-surface'}`}
+                            >
+                                WA
+                            </button>
+                            <button 
+                                onClick={() => { setMode('advisor'); handleClearChat(); }}
+                                className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${mode === 'advisor' ? 'bg-surface text-on-surface shadow-sm' : 'text-secondary hover:text-on-surface'}`}
+                            >
+                                Advisor
+                            </button>
+                        </div>
+                        {mode === 'whatsapp' && (
+                            <button
+                                onClick={handleManualResetContext}
+                                title="Reset ingatan percakapan sesi ini (mulai sesi bersih)"
+                                className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-secondary hover:text-on-surface transition-all active:scale-95 flex items-center gap-1"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                                <span className="hidden sm:inline">Reset</span>
+                            </button>
+                        )}
+                        {mode === 'whatsapp' && (
+                            <button
+                                onClick={() => setIsRulesModalOpen(true)}
+                                className="hidden sm:flex px-2.5 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-outline/20 text-xs font-semibold text-on-surface transition-all active:scale-95 items-center gap-1"
+                            >
+                                <BookOpen className="w-3.5 h-3.5 text-primary" />
+                                <span>Aturan ({rules.length})</span>
+                            </button>
+                        )}
 
                         <button
                             onClick={handleClearChat}
@@ -560,6 +612,39 @@ export default function SandboxPage() {
                                     )}
                                 </div>
                             )}
+
+                            {msg.advisorResult && (
+                                <div className="mt-1.5 ml-9 max-w-[88%] sm:max-w-[76%] w-full bg-surface border border-primary/20 rounded-xl p-2.5 shadow-sm text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between border-b border-surface-variant pb-1">
+                                        <div className="flex items-center gap-1 text-primary font-bold text-[11px]">
+                                            <Sparkles className="w-3 h-3" />
+                                            <span>Saran Habit Advisor</span>
+                                        </div>
+                                    </div>
+                                    {msg.advisorResult.suggestedReminder && (
+                                        <div className="bg-primary/10 rounded-lg p-2 border border-primary/25 mt-2 animate-in fade-in zoom-in-95">
+                                            <p className="font-bold text-[11px] text-primary">Pengingat Otomatis: {msg.advisorResult.suggestedReminder.time}</p>
+                                            <p className="text-[10px] text-on-surface mt-0.5 mb-2.5">{msg.advisorResult.suggestedReminder.message}</p>
+                                            <button 
+                                                onClick={async () => {
+                                                    try {
+                                                        await createReminderFromSuggestion(
+                                                            msg.advisorResult!.suggestedReminder!.time, 
+                                                            msg.advisorResult!.suggestedReminder!.message
+                                                        );
+                                                        showToast('✅ Pengingat berhasil dibuat!');
+                                                    } catch (e: any) {
+                                                        alert(e.message);
+                                                    }
+                                                }}
+                                                className="w-full bg-primary text-white text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors flex items-center justify-center gap-1 shadow-sm active:scale-95"
+                                            >
+                                                <CheckCircle2 className="w-3.5 h-3.5" /> ACC (Buat Reminder)
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     );
                 })}
@@ -578,17 +663,20 @@ export default function SandboxPage() {
                 {/* Suggestions */}
                 <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-1.5 text-xs">
                     <span className="text-[10px] text-secondary font-medium whitespace-nowrap pl-0.5">Uji:</span>
-                    {[
+                    {(mode === 'whatsapp' ? [
                         'hari ini kuliah apa aja?',
                         'hari ini seragam apa?',
                         'jadwal terapi hari ini',
                         'cek saldo',
                         'ada tugas apa besok?',
-                        'progres kuliah gimana?',
                         'Beli bensin 30k pakai SeaBank',
-                        'A tuker cash 50k transfer ke BCA 50k',
                         'Nanti jam 4 sore ingetin kerjain tugas web'
-                    ].map((prompt, idx) => (
+                    ] : [
+                        'kasih saran buat jadwalku dong',
+                        'evaluasi habit produktivitas mingguan',
+                        'apa yang kurang dari istirahatku?',
+                        'review waktu layarku'
+                    ]).map((prompt, idx) => (
                         <button
                             key={idx}
                             onClick={() => handleSendMessage(prompt)}

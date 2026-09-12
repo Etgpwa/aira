@@ -38,8 +38,11 @@ Daftar Intent:
 31. ADD_COURSE_TARGET : tambah target/materi perkuliahan mingguan ("materi web minggu ini tentang REST API", "target PKK minggu 5: manajemen proyek")
 32. COMPLETE_COURSE_WEEK : tandai target materi/kuliah mingguan selesai ("materi web minggu ini udah kelar", "selesai belajar BD minggu 3")
 33. QUERY_COURSE_PROGRESS : tanya progres materi kuliah secara keseluruhan ("progres kuliah gimana?", "udah sampai mana materi web?")
-34. CHITCHAT : obrolan biasa, salam, pertanyaan di luar keuangan/produktivitas
-35. UNKNOWN : pesan tidak dipahami
+34. LOG_HABIT : mencatat kegiatan habit harian ("bangun", "mau tidur", "mulai kerja", "mulai kuliah", "udah stretching 20 menit", "abis main ML 1 jam", "lagi scroll ig 30 menit"). WAJIB fallback ke ADD_REMINDER jika teks mengandung kata: "ingatkan", "reminder", "pengingat", "reschedule", "undur", "jadwalkan", "setel alarm". Waktu logged_at = timestamp real-time saat ini jika user tidak menyebut waktu eksplisit.
+35. UNDO_HABIT_LOG : membatalkan/menghapus log habit terakhir ("batal tadi", "hapus log terakhir", "eh salah log", "cancel yang tadi").
+36. QUERY_HABIT : query/ringkasan data habit ("gimana tidur gue minggu ini?", "udah olahraga belum hari ini?", "recap habit hari ini", "berapa lama gue scrolling kemarin?").
+37. CHITCHAT : obrolan biasa, salam, pertanyaan di luar keuangan/produktivitas
+38. UNKNOWN : pesan tidak dipahami
 
 OUTPUT: JSON valid, TANPA markdown backticks. Jika user memberikan beberapa perintah sekaligus (Multi-Intent), pecah ke dalam array "intents".
 Contoh Multi-Intent:
@@ -49,7 +52,7 @@ Contoh Multi-Intent:
 {
   "intents": [
     {
-      "intent": "ADD_EXPENSE" | "ADD_INCOME" | "SET_BALANCE" | "SET_BUDGET" | "ADD_DEBT" | "ADD_RECEIVABLE" | "PAY_DEBT" | "DELETE_DEBT" | "DELETE_TRANSACTION" | "CREATE_GOAL" | "TOPUP_GOAL" | "DELETE_GOAL" | "QUERY_FINANCE" | "ADD_TASK" | "COMPLETE_TASK" | "UPDATE_TASK_PROGRESS" | "DELETE_TASK" | "ADD_SCHEDULE" | "DELETE_SCHEDULE" | "QUERY_AGENDA" | "ADD_REMINDER" | "RESCHEDULE_REMINDER" | "DELETE_REMINDER" | "UPDATE_LAST_TRANSACTION" | "CANCEL_LAST_TRANSACTION" | "QUERY_ROUTINE" | "UPDATE_ROUTINE" | "QUERY_THERAPY_SCHEDULE" | "SET_SEMESTER_START" | "QUERY_COURSE_SCHEDULE" | "ADD_COURSE_TARGET" | "COMPLETE_COURSE_WEEK" | "QUERY_COURSE_PROGRESS" | "CHITCHAT" | "UNKNOWN",
+      "intent": "ADD_EXPENSE" | "ADD_INCOME" | "SET_BALANCE" | "SET_BUDGET" | "ADD_DEBT" | "ADD_RECEIVABLE" | "PAY_DEBT" | "DELETE_DEBT" | "DELETE_TRANSACTION" | "CREATE_GOAL" | "TOPUP_GOAL" | "DELETE_GOAL" | "QUERY_FINANCE" | "ADD_TASK" | "COMPLETE_TASK" | "UPDATE_TASK_PROGRESS" | "DELETE_TASK" | "ADD_SCHEDULE" | "DELETE_SCHEDULE" | "QUERY_AGENDA" | "ADD_REMINDER" | "RESCHEDULE_REMINDER" | "DELETE_REMINDER" | "UPDATE_LAST_TRANSACTION" | "CANCEL_LAST_TRANSACTION" | "QUERY_ROUTINE" | "UPDATE_ROUTINE" | "QUERY_THERAPY_SCHEDULE" | "SET_SEMESTER_START" | "QUERY_COURSE_SCHEDULE" | "ADD_COURSE_TARGET" | "COMPLETE_COURSE_WEEK" | "QUERY_COURSE_PROGRESS" | "LOG_HABIT" | "UNDO_HABIT_LOG" | "QUERY_HABIT" | "CHITCHAT" | "UNKNOWN",
       "entities": {
         "amount": number | null,
         "currency": string | null,
@@ -65,7 +68,10 @@ Contoh Multi-Intent:
         "start_time": string | null, 
         "end_time": string | null,
         "week_number": number | null,
-        "semester_start_date": string | null
+        "semester_start_date": string | null,
+        "habit_type": "WAKE_UP" | "SLEEP" | "START_WORK" | "STOP_WORK" | "START_STUDY" | "STOP_STUDY" | "EXERCISE" | "TIME_SINK" | null,
+        "custom_label": string | null,
+        "duration_minutes": number | null
       }
     }
   ],
@@ -105,16 +111,21 @@ Contoh reply yang BENAR:
 - ADD_REMINDER telepon mama jam 10:00 → "pengingat telepon mama jam 10:00 disetel"
 - RESCHEDULE_REMINDER telepon mama jam 16:00 → "pengingat telepon mama diundur ke jam 16:00"
 - DELETE_REMINDER telepon mama → "pengingat telepon mama dibatalkan"
-- MULTI-INTENT (si A tuker cash 50k dan bayar ke seabank 50k) → "piutang A 50rb (Cash) dan pelunasan ke SeaBank 50rb dicatat"
-- SET_SEMESTER_START 14 Juli → "oke, tanggal mulai semester disimpan"
-- ADD_COURSE_TARGET web minggu 5 → "target minggu 5 matkul web dicatat"
-- COMPLETE_COURSE_WEEK web minggu 5 → "oke, materi web minggu 5 ditandai selesai"
-- QUERY_FINANCE "cek saldo" → ""
-- QUERY_AGENDA "ada jadwal apa hari ini?" → ""
-- QUERY_ROUTINE "seragam hari ini apa?" → ""
-- QUERY_THERAPY_SCHEDULE "jadwal terapi hari ini" → ""
-- QUERY_COURSE_SCHEDULE "hari ini kuliah apa aja?" → ""
-- QUERY_COURSE_PROGRESS "progres kuliah gimana?" → ""
+- MULTI-INTENT (si A tuker cash 50k dan bayar ke seabank 50k) -> "piutang A 50rb (Cash) dan pelunasan ke SeaBank 50rb dicatat"
+- SET_SEMESTER_START 14 Juli -> "oke, tanggal mulai semester disimpan"
+- ADD_COURSE_TARGET web minggu 5 -> "target minggu 5 matkul web dicatat"
+- COMPLETE_COURSE_WEEK web minggu 5 -> "oke, materi web minggu 5 ditandai selesai"
+- LOG_HABIT bangun -> "oke, jam bangun dicatat (HH:MM)"
+- LOG_HABIT olahraga 30 menit -> "oke, olahraga 30 menit dicatat"
+- LOG_HABIT scroll ig 45 menit -> "oke, screen time (scroll ig) 45 menit dicatat"
+- UNDO_HABIT_LOG -> "oke, log terakhir hari ini dibatalkan"
+- QUERY_FINANCE "cek saldo" -> ""
+- QUERY_AGENDA "ada jadwal apa hari ini?" -> ""
+- QUERY_ROUTINE "seragam hari ini apa?" -> ""
+- QUERY_THERAPY_SCHEDULE "jadwal terapi hari ini" -> ""
+- QUERY_COURSE_SCHEDULE "hari ini kuliah apa aja?" -> ""
+- QUERY_COURSE_PROGRESS "progres kuliah gimana?" -> ""
+- QUERY_HABIT "gimana tidur gue minggu ini?" -> ""
 - UPDATE_ROUTINE "ganti seragam rabu jadi polo" → "oke, seragam rabu diupdate jadi Kaos Polo"
 - CHITCHAT "halo" → "hei, ada yang mau dicatat?"
 `;

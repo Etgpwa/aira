@@ -1154,3 +1154,119 @@ export async function deleteTrainingRule(id: string) {
     if (error) throw new Error(error.message);
     revalidatePath('/sandbox');
 }
+
+// ────────────────────────────────────────────────────────────────
+// Action: Habit Advisor Chat
+// ────────────────────────────────────────────────────────────────
+export interface HabitAdviceResult {
+    reply: string;
+    suggestedReminder?: {
+        time: string; // HH:mm format
+        message: string;
+    };
+}
+
+export async function simulateHabitAdvisor(
+    message: string,
+    history: Array<{ sender: 'user' | 'assistant'; text: string }> = []
+): Promise<HabitAdviceResult> {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User belum login');
+
+    // Fetch habit logs for context
+    const { data: logs } = await supabase
+        .from('habit_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('logged_at', { ascending: false })
+        .limit(50);
+
+    const logsContext = (logs || []).map(l => 
+        `[${new Date(l.logged_at).toLocaleString('id-ID')}] ${l.habit_type} ${l.duration_minutes ? `(${l.duration_minutes}m)` : ''}`
+    ).join('\n');
+
+    const formattedHistory = history.map(h => `${h.sender === 'user' ? 'User' : 'Advisor'}: ${h.text}`).join('\n');
+
+    const prompt = `
+Kamu adalah "Habit Advisor", seorang konsultan produktivitas pribadi yang ahli dan empatik.
+Tugasmu adalah menganalisis riwayat kebiasaan (habit logs) user dan menjawab pertanyaannya, serta memberikan saran praktis.
+
+RIWAYAT HABIT TERAKHIR USER:
+${logsContext}
+
+RIWAYAT PERCAKAPAN:
+${formattedHistory}
+
+Pesan terbaru user: "${message}"
+
+WAKTU SAAT INI (WIB): ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}
+
+ATURAN STRICT MENJAWAB:
+1. Berikan saran yang actionable dan suportif.
+2. JANGAN basa-basi berlebihan, tapi tetap ramah.
+3. Boleh menggunakan emoji secukupnya.
+4. JIKA kamu menyarankan user melakukan sesuatu di waktu tertentu HARI INI atau BESOK (misal: "tidur lebih awal jam 22:00", "minum air jam 15:00"), kamu HARUS mengisi field "suggestedReminder".
+5. OUTPUT HARUS berupa JSON murni (TANPA markdown backticks) dengan format:
+{
+  "reply": "Teks balasan saranmu",
+  "suggestedReminder": {
+    "time": "HH:mm", 
+    "message": "Pesan pengingat singkat (contoh: Waktunya tidur! / Jangan lupa minum air)"
+  }
+} (Bisa hilangkan suggestedReminder jika tidak ada saran jadwal konkrit)
+`;
+
+    return await callGeminiWithRotation(async (ai) => {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.5-flash',
+            contents: prompt,
+            config: { temperature: 0.4 }
+        });
+        const rawText = (response.text || '').replace(/```json/gi, '').replace(/```/gi, '').trim();
+        try {
+            return JSON.parse(rawText) as HabitAdviceResult;
+        } catch (e) {
+            console.error('Failed to parse advisor response:', rawText);
+            return { reply: rawText }; // Fallback
+        }
+    });
+}
+
+// ────────────────────────────────────────────────────────────────
+// Action: Buat Reminder dari Suggestion Habit Advisor
+// ────────────────────────────────────────────────────────────────
+export async function createReminderFromSuggestion(
+    time: string, 
+    message: string
+) {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User belum login');
+
+    // Parse time (HH:mm) for today or tomorrow if time has passed
+    const now = new Date();
+    const [hours, minutes] = time.split(':').map(Number);
+    const targetDate = new Date(now);
+    targetDate.setHours(hours, minutes, 0, 0);
+
+    if (targetDate < now) {
+        // If time already passed today, assume tomorrow
+        targetDate.setDate(targetDate.getDate() + 1);
+    }
+
+    const { error } = await supabase
+        .from('reminders')
+        .insert({
+            user_id: user.id,
+            remind_at: targetDate.toISOString(),
+            message: message,
+            status: 'PENDING',
+            source: 'SYSTEM' // Set source as SYSTEM
+        });
+
+    if (error) {
+        console.error('Add reminder error:', error);
+        throw new Error('Gagal membuat pengingat otomatis');
+    }
+}

@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Wallet, Target, CheckSquare, Calendar, GraduationCap } from 'lucide-react';
+import { LayoutDashboard, Wallet, CheckSquare, GraduationCap, Sparkles, Activity } from 'lucide-react';
 
 export default function BottomNav() {
   const pathname = usePathname();
@@ -10,10 +10,10 @@ export default function BottomNav() {
   const navItems = [
     { name: 'Home', href: '/', icon: LayoutDashboard },
     { name: 'Keuangan', href: '/finance', icon: Wallet },
-    { name: 'Tabungan', href: '/finance/goals', icon: Target },
     { name: 'Tugas', href: '/productivity/tasks', icon: CheckSquare },
-    { name: 'Jadwal', href: '/productivity/agenda', icon: Calendar },
     { name: 'Kuliah', href: '/academic', icon: GraduationCap },
+    { name: 'Habit', href: '/habits', icon: Activity },
+    { name: 'AI', href: '/sandbox', icon: Sparkles },
   ];
 
   // Sembunyikan bottom nav di halaman login dan simulator chat
@@ -29,14 +29,14 @@ export default function BottomNav() {
             isActive = pathname === '/';
           } else if (item.href === '/finance') {
             isActive = pathname === '/finance';
-          } else if (item.href === '/finance/goals') {
-            isActive = pathname === '/finance/goals' || pathname.startsWith('/finance/goals/');
           } else if (item.href === '/academic') {
             isActive = pathname === '/academic' || pathname.startsWith('/academic/');
           } else if (item.href === '/productivity/tasks') {
             isActive = pathname === '/productivity/tasks' || pathname.startsWith('/productivity/tasks/');
-          } else if (item.href === '/productivity/agenda') {
-            isActive = pathname === '/productivity/agenda' || pathname.startsWith('/productivity/agenda/');
+          } else if (item.href === '/habits') {
+            isActive = pathname === '/habits' || pathname.startsWith('/habits/');
+          } else if (item.href === '/sandbox') {
+            isActive = pathname === '/sandbox';
           } else {
             isActive = pathname === item.href;
           }

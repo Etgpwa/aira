@@ -2,15 +2,14 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Wallet, Target, CheckSquare, Calendar, GraduationCap, Sparkles, Settings } from 'lucide-react';
+import { LayoutDashboard, Wallet, Target, CheckSquare, Calendar, GraduationCap, Sparkles, Settings, Activity } from 'lucide-react';
 
 const navItems = [
     { name: 'Home', href: '/', icon: LayoutDashboard },
     { name: 'Keuangan', href: '/finance', icon: Wallet },
-    { name: 'Tabungan', href: '/finance/goals', icon: Target },
     { name: 'Tugas', href: '/productivity/tasks', icon: CheckSquare },
-    { name: 'Jadwal', href: '/productivity/agenda', icon: Calendar },
     { name: 'Kuliah', href: '/academic', icon: GraduationCap },
+    { name: 'Habit', href: '/habits', icon: Activity },
     { name: 'AI Simulator', href: '/sandbox', icon: Sparkles },
     { name: 'Pengaturan', href: '/settings', icon: Settings },
 ];
@@ -61,6 +60,8 @@ export default function SideNav() {
                         isActive = pathname === '/productivity/agenda' || pathname.startsWith('/productivity/agenda/');
                     } else if (item.href === '/settings') {
                         isActive = pathname === '/settings' || pathname.startsWith('/settings/');
+                    } else if (item.href === '/habits') {
+                        isActive = pathname === '/habits' || pathname.startsWith('/habits/');
                     } else {
                         isActive = pathname === item.href;
                     }

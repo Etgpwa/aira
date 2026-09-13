@@ -1,9 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
-import { format, isSameDay } from 'date-fns';
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { id } from 'date-fns/locale';
+import { isSameDay } from 'date-fns';
 import { Activity, Clock, LogIn, LogOut, Sun, Moon, Briefcase, GraduationCap, MonitorPlay } from 'lucide-react';
 import HabitLogHistory from './components/HabitLogHistory';
 import HabitTrendChart from './components/HabitTrendChart';
+
+const TZ = 'Asia/Jakarta';
 
 export const revalidate = 0; // Disable cache for habit logs
 
@@ -48,7 +51,9 @@ export default async function HabitsPage() {
     logs = data || [];
   }
 
-  const todayLogs = logs.filter(l => isSameDay(new Date(l.logged_at), new Date()));
+  // Filter logs berdasarkan tanggal WIB, bukan UTC server
+  const nowInWIB = toZonedTime(new Date(), TZ);
+  const todayLogs = logs.filter(l => isSameDay(toZonedTime(new Date(l.logged_at), TZ), nowInWIB));
 
   // Calculate some simple summaries if we have pairs
   // For V1, we'll just show the raw logs as a timeline
@@ -83,7 +88,7 @@ export default async function HabitsPage() {
                   : '-'}
               </p>
               <p className="text-xs text-secondary">
-                {todayLogs.length > 0 ? format(new Date(todayLogs[0].logged_at), 'HH:mm') : ''}
+                {todayLogs.length > 0 ? formatInTimeZone(new Date(todayLogs[0].logged_at), TZ, 'HH:mm') : ''}
               </p>
             </div>
           </div>
@@ -116,7 +121,7 @@ export default async function HabitsPage() {
                             {log.custom_label && <span className="font-normal text-secondary ml-1">({log.custom_label})</span>}
                           </p>
                           <span className="text-xs font-bold text-secondary bg-surface-container px-2 py-1 rounded-full whitespace-nowrap ml-2">
-                            {format(new Date(log.logged_at), 'HH:mm')}
+                            {formatInTimeZone(new Date(log.logged_at), TZ, 'HH:mm')}
                           </span>
                         </div>
                         {log.notes && <p className="text-xs text-secondary mt-1">{log.notes}</p>}

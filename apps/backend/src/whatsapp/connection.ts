@@ -106,7 +106,24 @@ export const connectToWhatsApp = async () => {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Message buffer per sender untuk menggabungkan beberapa chat berturut-turut
+    // ============================================================
+    // RETRY DECRYPTION — Handle pesan "Menunggu pesan ini..."
+    // Terjadi saat bot offline dan session keys berubah saat reconnect
+    // ============================================================
+    sock.ev.on('messages.update', async (updates) => {
+        for (const update of updates) {
+            if (update.update.status === 5) {
+                // Status 5 = DELIVERY_ERROR / decryption failed
+                // Minta WA server kirim ulang pesan tersebut
+                try {
+                    await sock.updateMediaMessage(update as any);
+                } catch (_) {
+                    // Silent fail — tidak perlu crash jika retry gagal
+                }
+            }
+        }
+    });
+
     const messageBuffers: Map<string, { texts: string[]; timer: NodeJS.Timeout; imageBuffer?: Buffer; mimeType?: string }> = new Map();
     const DEBOUNCE_DELAY_MS = 3500; // Tunggu 3.5 detik jika ada pesan susulan
 

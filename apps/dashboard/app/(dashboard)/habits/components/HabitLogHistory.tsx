@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { id } from 'date-fns/locale';
 import { Edit2, Trash2, X, Check, Save } from 'lucide-react';
 import { editHabitLog, deleteHabitLog } from '../actions';
+
+const TZ = 'Asia/Jakarta';
 
 interface HabitLog {
   id: string;
@@ -27,11 +29,13 @@ export default function HabitLogHistory({ logs, labelMap }: { logs: HabitLog[], 
 
   const startEdit = (log: HabitLog) => {
     setEditingId(log.id);
+    // Convert UTC ke WIB untuk tampilan di datetime-local input
+    const wibDate = new Date(new Date(log.logged_at).getTime() + 7 * 60 * 60 * 1000);
     setEditData({
       duration_minutes: log.duration_minutes ? log.duration_minutes.toString() : '',
       notes: log.notes || '',
-      // format to datetime-local expected string YYYY-MM-DDThh:mm
-      logged_at: new Date(log.logged_at).toISOString().slice(0, 16)
+      // format to datetime-local expected string YYYY-MM-DDThh:mm (dalam WIB)
+      logged_at: wibDate.toISOString().slice(0, 16)
     });
   };
 
@@ -128,7 +132,7 @@ export default function HabitLogHistory({ logs, labelMap }: { logs: HabitLog[], 
                         {log.custom_label && <span className="font-normal text-secondary ml-1">({log.custom_label})</span>}
                       </p>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-secondary">
-                        <span className="font-medium">{format(new Date(log.logged_at), "dd MMM yyyy, HH:mm", { locale: id })}</span>
+                        <span className="font-medium">{formatInTimeZone(new Date(log.logged_at), TZ, 'dd MMM yyyy, HH:mm', { locale: id })}</span>
                         {log.duration_minutes && <span className="text-primary font-medium">{log.duration_minutes} mnt</span>}
                         {log.source && <span className="opacity-60">via {log.source}</span>}
                       </div>

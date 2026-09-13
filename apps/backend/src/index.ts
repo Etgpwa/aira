@@ -30,10 +30,27 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`🚀 Backend API running on port ${port}`);
   
   // Jalankan WhatsApp Bot
   connectToWhatsApp().catch(err => console.error("Error starting WhatsApp bot:", err));
 });
 
+// ============================================================
+// GRACEFUL SHUTDOWN — Mencegah Baileys auth state corrupt
+// saat PM2 restart/stop sehingga session keys tetap valid
+// ============================================================
+const shutdown = (signal: string) => {
+    console.log(`\n🔔 [${signal}] Received. Menunggu proses aktif selesai (3 detik)...`);
+    
+    // Beri waktu Baileys flush auth state sebelum proses mati
+    setTimeout(() => {
+        console.log('✅ Graceful shutdown selesai. Bye!');
+        server.close();
+        process.exit(0);
+    }, 3000);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

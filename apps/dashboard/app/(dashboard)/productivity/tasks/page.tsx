@@ -1,8 +1,28 @@
 import { createClient } from '@/lib/supabase/server';
-import KanbanBoard from '@/components/KanbanBoard';
+import dynamic from 'next/dynamic';
 import AddTaskModal from './components/AddTaskModal';
-import UnifiedScheduleView from '../agenda/components/UnifiedScheduleView';
 import Link from 'next/link';
+
+const KanbanBoard = dynamic(() => import('@/components/KanbanBoard'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex gap-4 p-6 overflow-x-auto h-full">
+      <div className="w-80 h-96 bg-surface-container rounded-2xl animate-pulse flex-shrink-0" />
+      <div className="w-80 h-96 bg-surface-container rounded-2xl animate-pulse flex-shrink-0" />
+      <div className="w-80 h-96 bg-surface-container rounded-2xl animate-pulse flex-shrink-0" />
+    </div>
+  ),
+});
+
+const UnifiedScheduleView = dynamic(() => import('../agenda/components/UnifiedScheduleView'), {
+  ssr: false,
+  loading: () => (
+    <div className="p-6 space-y-4">
+      <div className="w-full h-32 bg-surface-container rounded-2xl animate-pulse" />
+      <div className="w-full h-32 bg-surface-container rounded-2xl animate-pulse" />
+    </div>
+  ),
+});
 
 export const revalidate = 30;
 

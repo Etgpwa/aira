@@ -3,8 +3,14 @@ import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import Link from 'next/link';
 import { Wallet, Target, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import AddTransactionModal from './components/AddTransactionModal';
 import TransactionHistoryList from './components/TransactionHistoryList';
+
+const ExportRecapModal = dynamic(() => import('./components/ExportRecapModal'), {
+  ssr: false,
+  loading: () => <div className="w-24 h-9 bg-surface-container rounded-xl animate-pulse" />
+});
 
 export const revalidate = 30;
 
@@ -92,14 +98,17 @@ export default async function FinancePage() {
   return (
     <div>
       {/* Header */}
-      <header className="flex justify-between items-center mb-8">
+      <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-on-surface">Keuangan</h1>
           <p className="text-secondary text-sm mt-1">Kelola aset dan riwayat transaksi</p>
         </div>
         
-        {/* Tombol Input Manual Transaksi */}
-        <AddTransactionModal accounts={accounts} categories={categories} />
+        {/* Tombol Aksi */}
+        <div className="flex items-center gap-2.5">
+          <ExportRecapModal accounts={accounts} />
+          <AddTransactionModal accounts={accounts} categories={categories} />
+        </div>
       </header>
 
       {/* Desktop: 2-column | Mobile: single column */}

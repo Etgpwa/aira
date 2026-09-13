@@ -152,3 +152,59 @@ export async function cancelLastTransaction() {
 
     return await deleteTransaction(txs[0].id);
 }
+
+// ────────────────────────────────────────────────────────────────
+// 4. Ambil Data Rekap Bulanan untuk Ekspor (Excel & PDF Jurnal)
+// ────────────────────────────────────────────────────────────────
+export async function getMonthlyFinanceRecap(month: number, year: number, accountId?: string) {
+    const supabase = createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error('Tidak terautentikasi');
+
+    // Rentang waktu bulan bersangkutan
+    const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0)).toISOString();
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString();
+
+    let query = supabase
+        .from('transactions')
+        .select(`
+            id,
+            amount,
+            currency,
+            type,
+            description,
+            transaction_date,
+            created_at,
+            account_id,
+            category_id,
+            bank_accounts (id, name),
+            transaction_categories (id, name)
+        `)
+        .eq('user_id', user.id)
+        .gte('transaction_date', startDate)
+        .lte('transaction_date', endDate)
+        .order('transaction_date', { ascending: true }); // ASC untuk alur jurnal akuntansi kronologis
+
+    if (accountId && accountId !== 'all') {
+        query = query.eq('account_id', accountId);
+    }
+
+    const { data: transactions, error: txError } = await query;
+    if (txError) throw txError;
+
+    // Ambil daftar rekening dan profil pengguna
+    const [accountsRes, profileRes] = await Promise.all([
+        supabase.from('bank_accounts').select('id, name, balance').eq('user_id', user.id),
+        supabase.from('user_settings').select('phone_number, default_currency, timezone').eq('user_id', user.id).maybeSingle(),
+    ]);
+
+    return {
+        month,
+        year,
+        transactions: transactions || [],
+        accounts: accountsRes.data || [],
+        userSettings: profileRes.data || null,
+        userEmail: user.email || '',
+    };
+}
+

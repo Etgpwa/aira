@@ -3,8 +3,17 @@ import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { id } from 'date-fns/locale';
 import { isSameDay } from 'date-fns';
 import { Activity, Clock, LogIn, LogOut, Sun, Moon, Briefcase, GraduationCap, MonitorPlay } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import HabitLogHistory from './components/HabitLogHistory';
-import HabitTrendChart from './components/HabitTrendChart';
+
+const HabitTrendChart = dynamic(() => import('./components/HabitTrendChart'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-48 w-full bg-surface-container rounded-2xl animate-pulse flex items-center justify-center">
+      <p className="text-secondary text-sm">Memuat grafik tren...</p>
+    </div>
+  ),
+});
 
 const TZ = 'Asia/Jakarta';
 

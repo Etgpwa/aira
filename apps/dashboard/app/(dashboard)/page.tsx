@@ -4,7 +4,12 @@ import { id } from 'date-fns/locale';
 import { ArrowDownLeft, ArrowUpRight, Plus, Activity, Target, Settings } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import ReminderHubModal from '@/components/ReminderHubModal';
+
+// Lazy load ReminderHubModal (29KB) agar tidak masuk ke initial bundle homepage
+const ReminderHubModal = dynamic(() => import('@/components/ReminderHubModal'), {
+  ssr: false,
+  loading: () => <div className="w-10 h-10 rounded-full bg-surface-container animate-pulse" />
+});
 
 // Lazy load FinanceChart (recharts) agar tidak masuk ke initial bundle
 const FinanceChart = dynamic(() => import('@/components/FinanceChart'), {

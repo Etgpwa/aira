@@ -117,8 +117,7 @@ export class CronService {
         const targets: string[] = [];
         if (lid) {
             targets.push(`${lid.replace(/[^0-9]/g, '')}@lid`);
-        }
-        if (phone) {
+        } else if (phone) {
             const cleanPhone = phone.replace(/[^0-9]/g, '');
             const normalized = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone;
             targets.push(`${normalized}@s.whatsapp.net`);

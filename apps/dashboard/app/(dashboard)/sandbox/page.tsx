@@ -11,7 +11,7 @@ import {
 import { 
     simulateKarenChat, saveTrainingRule, getTrainingRules, 
     toggleTrainingRule, deleteTrainingRule, SimulationResult, 
-    TrainingRule, simulateHabitAdvisor, createReminderFromSuggestion, HabitAdviceResult
+    TrainingRule, simulateHabitAdvisor, applyAdvisorSuggestions, HabitAdviceResult
 } from './actions';
 
 interface ChatMessage {
@@ -621,28 +621,51 @@ export default function SandboxPage() {
                                             <span>Saran Habit Advisor</span>
                                         </div>
                                     </div>
-                                    {msg.advisorResult.suggestedReminder && (
+                                    {(msg.advisorResult.suggestedSchedules?.length || msg.advisorResult.suggestedReminders?.length) ? (
                                         <div className="bg-primary/10 rounded-lg p-2 border border-primary/25 mt-2 animate-in fade-in zoom-in-95">
-                                            <p className="font-bold text-[11px] text-primary">Pengingat Otomatis: {msg.advisorResult.suggestedReminder.time}</p>
-                                            <p className="text-[10px] text-on-surface mt-0.5 mb-2.5">{msg.advisorResult.suggestedReminder.message}</p>
+                                            {msg.advisorResult.suggestedSchedules && msg.advisorResult.suggestedSchedules.length > 0 && (
+                                                <div className="mb-2">
+                                                    <p className="font-bold text-[11px] text-primary mb-1">Jadwal Rutin (Study Schedules):</p>
+                                                    <ul className="text-[10px] text-on-surface list-disc pl-3 space-y-0.5">
+                                                        {msg.advisorResult.suggestedSchedules.map((s, i) => (
+                                                            <li key={i}>
+                                                                <span className="font-semibold">
+                                                                    {['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][s.day_of_week]} 
+                                                                </span> ({s.start_time}-{s.end_time}): {s.subject}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            
+                                            {msg.advisorResult.suggestedReminders && msg.advisorResult.suggestedReminders.length > 0 && (
+                                                <div className="mb-3">
+                                                    <p className="font-bold text-[11px] text-primary mb-1">Pengingat Spesifik (Reminders):</p>
+                                                    <ul className="text-[10px] text-on-surface list-disc pl-3 space-y-0.5">
+                                                        {msg.advisorResult.suggestedReminders.map((r, i) => (
+                                                            <li key={i}>
+                                                                <span className="font-semibold">{r.date ? `${r.date} ` : ''}{r.time}</span> - {r.message}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+
                                             <button 
                                                 onClick={async () => {
                                                     try {
-                                                        await createReminderFromSuggestion(
-                                                            msg.advisorResult!.suggestedReminder!.time, 
-                                                            msg.advisorResult!.suggestedReminder!.message
-                                                        );
-                                                        showToast('✅ Pengingat berhasil dibuat!');
+                                                        await applyAdvisorSuggestions(msg.advisorResult!);
+                                                        showToast('✅ Jadwal & Pengingat berhasil dibuat!');
                                                     } catch (e: any) {
                                                         alert(e.message);
                                                     }
                                                 }}
-                                                className="w-full bg-primary text-white text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors flex items-center justify-center gap-1 shadow-sm active:scale-95"
+                                                className="w-full bg-primary text-white text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-primary-dark transition-colors flex items-center justify-center gap-1 shadow-sm active:scale-95 mt-1"
                                             >
-                                                <CheckCircle2 className="w-3.5 h-3.5" /> ACC (Buat Reminder)
+                                                <CheckCircle2 className="w-3.5 h-3.5" /> ACC (Terapkan Saran)
                                             </button>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             )}
                         </div>

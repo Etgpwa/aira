@@ -1160,10 +1160,17 @@ export async function deleteTrainingRule(id: string) {
 // ────────────────────────────────────────────────────────────────
 export interface HabitAdviceResult {
     reply: string;
-    suggestedReminder?: {
+    suggestedSchedules?: Array<{
+        day_of_week: number;
+        start_time: string;
+        end_time: string;
+        subject: string;
+    }>;
+    suggestedReminders?: Array<{
         time: string; // HH:mm format
         message: string;
-    };
+        date?: string; // YYYY-MM-DD format (optional)
+    }>;
 }
 
 export async function simulateHabitAdvisor(
@@ -1186,14 +1193,45 @@ export async function simulateHabitAdvisor(
         `[${new Date(l.logged_at).toLocaleString('id-ID')}] ${l.habit_type} ${l.duration_minutes ? `(${l.duration_minutes}m)` : ''}`
     ).join('\n');
 
+    // Fetch study schedules for context
+    const { data: schedules } = await supabase
+        .from('study_schedules')
+        .select('day_of_week, subject, start_time, end_time')
+        .eq('user_id', user.id);
+    
+    const schedulesContext = (schedules || []).map(s => 
+        `Hari ke-${s.day_of_week} (${s.start_time}-${s.end_time}): ${s.subject}`
+    ).join('\n') || 'Belum ada jadwal mingguan.';
+
+    // Fetch pending reminders
+    const { data: reminders } = await supabase
+        .from('reminders')
+        .select('message, remind_at')
+        .eq('user_id', user.id)
+        .eq('status', 'PENDING')
+        .gte('remind_at', new Date().toISOString())
+        .order('remind_at', { ascending: true })
+        .limit(20);
+
+    const remindersContext = (reminders || []).map(r => 
+        `- [${new Date(r.remind_at).toLocaleString('id-ID')}] ${r.message}`
+    ).join('\n') || 'Belum ada pengingat aktif.';
+
     const formattedHistory = history.map(h => `${h.sender === 'user' ? 'User' : 'Advisor'}: ${h.text}`).join('\n');
 
     const prompt = `
 Kamu adalah "Habit Advisor", seorang konsultan produktivitas pribadi yang ahli dan empatik.
-Tugasmu adalah menganalisis riwayat kebiasaan (habit logs) user dan menjawab pertanyaannya, serta memberikan saran praktis.
+Tugasmu adalah menganalisis riwayat kebiasaan (habit logs) user dan menjawab pertanyaannya, serta menyusun jadwal atau pengingat yang spesifik.
 
-RIWAYAT HABIT TERAKHIR USER:
+KONTEKS USER SAAT INI:
+--- HABIT LOGS TERAKHIR ---
 ${logsContext}
+
+--- JADWAL MINGGUAN (0=Minggu, 1=Senin, ..., 6=Sabtu) ---
+${schedulesContext}
+
+--- PENGINGAT AKTIF MENDATANG ---
+${remindersContext}
 
 RIWAYAT PERCAKAPAN:
 ${formattedHistory}
@@ -1203,18 +1241,20 @@ Pesan terbaru user: "${message}"
 WAKTU SAAT INI (WIB): ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}
 
 ATURAN STRICT MENJAWAB:
-1. Berikan saran yang actionable dan suportif.
-2. JANGAN basa-basi berlebihan, tapi tetap ramah.
-3. Boleh menggunakan emoji secukupnya.
-4. JIKA kamu menyarankan user melakukan sesuatu di waktu tertentu HARI INI atau BESOK (misal: "tidur lebih awal jam 22:00", "minum air jam 15:00"), kamu HARUS mengisi field "suggestedReminder".
+1. Berikan saran yang actionable dan suportif. JANGAN basa-basi berlebihan.
+2. Jika user meminta dibuatkan jadwal untuk beberapa hari (misal jadwal olahraga mingguan), kamu HARUS membuat array "suggestedSchedules" (day_of_week 0-6).
+3. Jika user membutuhkan pengingat spesifik (one-off) di tanggal tertentu atau hari ini/besok, gunakan array "suggestedReminders".
+4. Jika tidak ada jadwal/pengingat yang konkrit, array boleh kosong atau dihilangkan.
 5. OUTPUT HARUS berupa JSON murni (TANPA markdown backticks) dengan format:
 {
   "reply": "Teks balasan saranmu",
-  "suggestedReminder": {
-    "time": "HH:mm", 
-    "message": "Pesan pengingat singkat (contoh: Waktunya tidur! / Jangan lupa minum air)"
-  }
-} (Bisa hilangkan suggestedReminder jika tidak ada saran jadwal konkrit)
+  "suggestedSchedules": [
+    { "day_of_week": 1, "start_time": "16:00", "end_time": "17:00", "subject": "Olahraga - Upper Body" }
+  ],
+  "suggestedReminders": [
+    { "time": "21:30", "message": "Siap-siap tidur!", "date": "2026-09-15" } // date opsional, isi format YYYY-MM-DD jika spesifik hari. Jika dikosongkan akan dianggap hari ini/besok tergantung jam.
+  ]
+}
 `;
 
     return await callGeminiWithRotation(async (ai) => {
@@ -1234,39 +1274,73 @@ ATURAN STRICT MENJAWAB:
 }
 
 // ────────────────────────────────────────────────────────────────
-// Action: Buat Reminder dari Suggestion Habit Advisor
+// Action: Terapkan Saran Habit Advisor (Schedules & Reminders)
 // ────────────────────────────────────────────────────────────────
-export async function createReminderFromSuggestion(
-    time: string, 
-    message: string
-) {
+export async function applyAdvisorSuggestions(result: HabitAdviceResult) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User belum login');
 
-    // Parse time (HH:mm) for today or tomorrow if time has passed
+    const errors: string[] = [];
     const now = new Date();
-    const [hours, minutes] = time.split(':').map(Number);
-    const targetDate = new Date(now);
-    targetDate.setHours(hours, minutes, 0, 0);
 
-    if (targetDate < now) {
-        // If time already passed today, assume tomorrow
-        targetDate.setDate(targetDate.getDate() + 1);
+    // 1. Insert Schedules
+    if (result.suggestedSchedules && result.suggestedSchedules.length > 0) {
+        const schedulesToInsert = result.suggestedSchedules.map(s => ({
+            user_id: user.id,
+            day_of_week: s.day_of_week,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            subject: s.subject
+        }));
+
+        const { error: schedError } = await supabase
+            .from('study_schedules')
+            .insert(schedulesToInsert);
+
+        if (schedError) {
+            console.error('Add schedules error:', schedError);
+            errors.push('Gagal membuat jadwal berulang.');
+        }
     }
 
-    const { error } = await supabase
-        .from('reminders')
-        .insert({
-            user_id: user.id,
-            remind_at: targetDate.toISOString(),
-            message: message,
-            status: 'PENDING',
-            source: 'SYSTEM' // Set source as SYSTEM
+    // 2. Insert Reminders
+    if (result.suggestedReminders && result.suggestedReminders.length > 0) {
+        const remindersToInsert = result.suggestedReminders.map(r => {
+            const [hours, minutes] = r.time.split(':').map(Number);
+            let targetDate = new Date(now);
+            
+            if (r.date) {
+                // If date is provided (YYYY-MM-DD)
+                targetDate = new Date(r.date);
+                targetDate.setHours(hours, minutes, 0, 0);
+            } else {
+                targetDate.setHours(hours, minutes, 0, 0);
+                if (targetDate < now) {
+                    targetDate.setDate(targetDate.getDate() + 1);
+                }
+            }
+
+            return {
+                user_id: user.id,
+                remind_at: targetDate.toISOString(),
+                message: r.message,
+                status: 'PENDING'
+                // Dihapus 'source' karena kolom tersebut tidak ada di schema
+            };
         });
 
-    if (error) {
-        console.error('Add reminder error:', error);
-        throw new Error('Gagal membuat pengingat otomatis');
+        const { error: remError } = await supabase
+            .from('reminders')
+            .insert(remindersToInsert);
+
+        if (remError) {
+            console.error('Add reminders error:', remError);
+            errors.push('Gagal membuat pengingat.');
+        }
+    }
+
+    if (errors.length > 0) {
+        throw new Error(errors.join(' '));
     }
 }

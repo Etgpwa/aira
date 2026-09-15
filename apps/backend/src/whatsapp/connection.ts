@@ -1193,25 +1193,50 @@ export const connectToWhatsApp = async () => {
                                             
                                             // UPDATE SALDO / CASH
                                             const accountName = singleIntent.entities.account || 'Cash';
-                                            const txType = payResult.debtType === 'PAYABLE' ? 'expense' : 'income';
-                                            const txCategory = payResult.debtType === 'PAYABLE' ? 'Pelunasan Hutang' : 'Penerimaan Piutang';
                                             
-                                            await transactionService.recordTransaction({
-                                                userId,
-                                                type: txType,
-                                                amount: payResult.paidAmount,
-                                                currency: 'IDR',
-                                                accountName: accountName,
-                                                categoryName: txCategory,
-                                                description: `${txCategory} ${payResult.personName}`
-                                            });
+                                            // 1. Catat transaksi pelunasan hutang sesuai nominal yang benar-benar melunasi
+                                            if (payResult.actualPaidForDebt > 0) {
+                                                const txType = payResult.debtType === 'PAYABLE' ? 'expense' : 'income';
+                                                const txCategory = payResult.debtType === 'PAYABLE' ? 'Pelunasan Hutang' : 'Penerimaan Piutang';
+                                                
+                                                await transactionService.recordTransaction({
+                                                    userId,
+                                                    type: txType,
+                                                    amount: payResult.actualPaidForDebt,
+                                                    currency: 'IDR',
+                                                    accountName: accountName,
+                                                    categoryName: txCategory,
+                                                    description: `${txCategory} ${payResult.personName}`
+                                                });
+                                            }
+
+                                            // 2. Catat sisa/kelebihan sebagai Tip
+                                            if (payResult.excessPayment > 0) {
+                                                const excessType = payResult.debtType === 'PAYABLE' ? 'expense' : 'income';
+                                                const excessCategory = 'Tip'; // Kategori diminta user
+                                                
+                                                await transactionService.recordTransaction({
+                                                    userId,
+                                                    type: excessType,
+                                                    amount: payResult.excessPayment,
+                                                    currency: 'IDR',
+                                                    accountName: accountName,
+                                                    categoryName: excessCategory,
+                                                    description: `Kelebihan pembayaran (Tip) ${payResult.personName}`
+                                                });
+                                            }
 
                                             const paidFmt = payResult.paidAmount.toLocaleString('id-ID');
+                                            const excessFmt = payResult.excessPayment.toLocaleString('id-ID');
                                             const remainFmt = payResult.remainingAmount.toLocaleString('id-ID');
                                             const label = payResult.debtType === 'PAYABLE' ? 'Hutangku ke' : 'Piutang dari';
 
                                             if (payResult.status === 'PAID') {
-                                                finalReply += "\n" + `\n\n📋 *${label} ${payResult.personName}* LUNAS ✓`;
+                                                let msg = `\n\n📋 *${label} ${payResult.personName}* LUNAS ✓`;
+                                                if (payResult.excessPayment > 0) {
+                                                    msg += `\n  (Uang lebih Rp ${excessFmt} dicatat otomatis sebagai Tip)`;
+                                                }
+                                                finalReply += "\n" + msg;
                                             } else {
                                                 finalReply += "\n" + `\n\n📋 *${label} ${payResult.personName}*\n  Bayar: Rp ${paidFmt}\n  Sisa: Rp ${remainFmt}`;
                                             }

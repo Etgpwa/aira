@@ -3,6 +3,8 @@ import { supabase } from '../supabase/supabase.client';
 export interface PayDebtResult {
     personName: string;
     paidAmount: number;
+    actualPaidForDebt: number;
+    excessPayment: number;
     remainingAmount: number;
     status: 'PAID' | 'PARTIAL';
     debtType: 'PAYABLE' | 'RECEIVABLE';
@@ -71,6 +73,7 @@ export class DebtService {
         }
 
         let remainingPayment = params.amount;
+        let actualPaid = 0;
         const debtType = debts[0].type;
         
         for (const debt of debts) {
@@ -81,6 +84,7 @@ export class DebtService {
             if (currentRemaining <= remainingPayment) {
                 // Hutang ini lunas
                 remainingPayment -= currentRemaining;
+                actualPaid += currentRemaining;
                 await supabase
                     .from('debts')
                     .update({
@@ -92,6 +96,7 @@ export class DebtService {
             } else {
                 // Hutang ini dibayar sebagian
                 const newRemaining = currentRemaining - remainingPayment;
+                actualPaid += remainingPayment;
                 remainingPayment = 0;
                 await supabase
                     .from('debts')
@@ -117,6 +122,8 @@ export class DebtService {
         return {
             personName: debts[0].person_name,
             paidAmount: params.amount,
+            actualPaidForDebt: actualPaid,
+            excessPayment: remainingPayment,
             remainingAmount: totalRemaining,
             status: totalRemaining === 0 ? 'PAID' : 'PARTIAL',
             debtType: debtType as 'PAYABLE' | 'RECEIVABLE'

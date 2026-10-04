@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import {
     CheckCircle2,
     XCircle,
@@ -62,7 +62,15 @@ export default function QuizRunner({
     });
 
     const [isParaphrasing, setIsParaphrasing] = useState(false);
-    const [hasParaphrased, setHasParaphrased] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
+    // Soal dari Mode Event Challenge sudah diparafrase sebelum masuk ke komponen ini
+    const [hasParaphrased, setHasParaphrased] = useState(() => questions.some((q) => q.is_paraphrased));
+
+    // Jumlah soal yang gagal diparafrase (hanya relevan di Mode Challenge)
+    const failedParaphraseCount =
+        currentMode === 'challenge' && hasParaphrased
+            ? simQuestions.filter((q) => !q.is_paraphrased).length
+            : 0;
 
     // CBT Navigation & Answer State
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -77,15 +85,24 @@ export default function QuizRunner({
     const [noteSuccessMsg, setNoteSuccessMsg] = useState<string | null>(null);
 
     // ─── Reset / Ulangi Ujian ──────────────────────────────────────
-    const restartQuiz = () => {
+    const restartQuiz = async () => {
+        // Soal asli (belum diparafrase) sebagai sumber sampel; questions dari props bisa sudah diparafrase (Mode Event)
         const shuffled = [...questions].sort(() => 0.5 - Math.random());
-        setSimQuestions(shuffled.slice(0, maxCount));
+        const sample = shuffled.slice(0, maxCount);
         setCurrentIndex(0);
         setUserAnswers({});
         setShowResult(false);
         setIsReviewMode(false);
         setShowConfirmModal(false);
         setNoteSuccessMsg(null);
+
+        if (currentMode === 'challenge') {
+            // Mode Challenge: parafrase ulang sampel baru
+            setSimQuestions(sample);
+            await generateChallengeQuestions(sample);
+        } else {
+            setSimQuestions(sample);
+        }
     };
 
     // ─── Pergantian Mode Kuis ──────────────────────────────────────
@@ -114,7 +131,7 @@ export default function QuizRunner({
     const generateChallengeQuestions = async (basePool: any[]) => {
         setIsParaphrasing(true);
         try {
-            const paraphrased = await batchParaphraseQuestions(basePool);
+            const { questions: paraphrased } = await batchParaphraseQuestions(basePool);
             setSimQuestions(paraphrased);
             setHasParaphrased(true);
             setCurrentIndex(0);
@@ -123,10 +140,55 @@ export default function QuizRunner({
             setIsReviewMode(false);
         } catch (err) {
             console.error('Gagal generate challenge questions:', err);
+            // Tandai selesai agar UI menampilkan peringatan + tombol coba lagi
+            setSimQuestions(basePool.map((q) => ({ ...q, is_paraphrased: false })));
+            setHasParaphrased(true);
         } finally {
             setIsParaphrasing(false);
         }
     };
+
+    // Coba ulang parafrase hanya untuk soal yang gagal (jawaban yang sudah diisi dipertahankan)
+    const retryFailedParaphrase = async () => {
+        const failedIdx = simQuestions
+            .map((q, i) => (q.is_paraphrased ? -1 : i))
+            .filter((i) => i >= 0);
+        if (failedIdx.length === 0) return;
+
+        setIsRetrying(true);
+        try {
+            const { questions: retried } = await batchParaphraseQuestions(
+                failedIdx.map((i) => simQuestions[i])
+            );
+            setSimQuestions((prev) => {
+                const next = [...prev];
+                failedIdx.forEach((origIdx, k) => {
+                    if (retried[k]?.is_paraphrased) {
+                        next[origIdx] = retried[k];
+                        // Jawaban lama untuk soal ini dibatalkan karena posisi opsi bisa berubah
+                        setUserAnswers((ans) => {
+                            const copy = { ...ans };
+                            delete copy[origIdx];
+                            return copy;
+                        });
+                    }
+                });
+                return next;
+            });
+        } catch (err) {
+            console.error('Gagal mengulang parafrase:', err);
+        } finally {
+            setIsRetrying(false);
+        }
+    };
+
+    // Saat masuk langsung via ?mode=challenge, soal belum diparafrase -> trigger otomatis
+    useEffect(() => {
+        if (currentMode === 'challenge' && !hasParaphrased) {
+            generateChallengeQuestions(simQuestions);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // ─── Interaksi Jawaban (Pilih Opsi tanpa Reveal Jawaban) ───────
     const handleSelectOption = (optionKey: string) => {
@@ -555,9 +617,30 @@ export default function QuizRunner({
                     <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
                         <span>
-                            <strong>Challenge Mode Aktif:</strong> Soal diparafrase oleh AI untuk menguji pemahaman konsep.
+                            <strong>Challenge Mode Aktif:</strong> Soal diparafrase oleh AI untuk menguji pemahaman konsep. Posisi opsi jawaban juga diacak.
                         </span>
                     </div>
+                </div>
+            )}
+
+            {/* Peringatan jika sebagian soal gagal diparafrase */}
+            {failedParaphraseCount > 0 && (
+                <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>
+                            {failedParaphraseCount} dari {simQuestions.length} soal gagal diparafrase dan tampil dengan kalimat asli.
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={retryFailedParaphrase}
+                        disabled={isRetrying}
+                        className="shrink-0 bg-red-600 text-white px-3 py-1 rounded-full font-bold flex items-center gap-1 disabled:opacity-50"
+                    >
+                        {isRetrying && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Coba lagi
+                    </button>
                 </div>
             )}
 
@@ -611,6 +694,11 @@ export default function QuizRunner({
 
             {/* Kartu Soal & Pilihan Jawaban */}
             <div className="bg-surface border border-surface-variant rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4">
+                {currentMode === 'challenge' && currentQ.is_paraphrased && (
+                    <span className="self-start text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Diparafrase AI
+                    </span>
+                )}
                 <p className="text-sm sm:text-base font-semibold text-on-surface leading-relaxed whitespace-pre-line">
                     {currentQ.question_text}
                 </p>

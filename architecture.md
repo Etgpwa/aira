@@ -35,6 +35,11 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
   - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
   - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
 
+## Alur Challenge Mode (Kuis Kuliah)
+1. `QuizRunner.tsx` mengambil sampel soal MCQ asli; bila mode awal `challenge` (via `?mode=challenge`) atau user menekan tab Challenge, server action `batchParaphraseQuestions` dipanggil (chunk 10 soal ke Gemini).
+2. Tiap hasil divalidasi (kalimat harus berbeda dari asli, opsi lengkap), di-retry 1x bila gagal, lalu posisi opsi diacak dan `correct_answer` dipetakan ulang. Soal gagal tetap tampil asli dengan `is_paraphrased: false`.
+3. UI menampilkan peringatan + tombol "Coba lagi" bila ada soal gagal. Mode Event memparafrase di `EventQuizClient.tsx` sebelum masuk QuizRunner.
+
 ## Dynamic AI Training & Prompt Injection
 Untuk mempermudah pelatihan AI tanpa mengedit kode:
 1. **Interactive Sandbox**: Sesi chat di `/sandbox` membaca konteks riil pengguna (saldo rekening, tugas, tabungan) sebagai patokan simulasi, namun bersifat *Dry-Run* tanpa memodifikasi database nyata.

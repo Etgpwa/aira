@@ -83,7 +83,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
             if (chosenMode === 'challenge') {
                 setLoadingStep(`Memparafrase ${rawQuestions.length} butir soal dengan Gemini AI...`);
-                const paraphrased = await batchParaphraseQuestions(rawQuestions);
+                const { questions: paraphrased } = await batchParaphraseQuestions(rawQuestions);
                 setActiveExamQuestions(paraphrased);
             } else {
                 setActiveExamQuestions(rawQuestions);

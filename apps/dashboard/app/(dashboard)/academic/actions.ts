@@ -468,83 +468,127 @@ export async function saveQuestionNote(questionId: string, userNote: string) {
 // AI: Batch Paraphrase Soal On-The-Fly (Mode Challenge)
 // ────────────────────────────────────────────────────────────────
 
-export async function batchParaphraseQuestions(questions: any[]): Promise<any[]> {
-    if (!questions || questions.length === 0) return [];
+const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
+const normText = (s: any) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-    const chunkSize = 10;
-    const allParaphrased: any[] = [];
+async function paraphraseChunk(chunk: any[]): Promise<any[] | null> {
+    const promptInput = chunk.map((q, idx) => ({
+        index: idx,
+        question_text: q.question_text,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        correct_answer: q.correct_answer,
+    }));
 
-    for (let i = 0; i < questions.length; i += chunkSize) {
-        const chunk = questions.slice(i, i + chunkSize);
-        const promptInput = chunk.map((q, idx) => ({
-            index: idx,
-            question_text: q.question_text,
-            option_a: q.option_a,
-            option_b: q.option_b,
-            option_c: q.option_c,
-            option_d: q.option_d,
-            correct_answer: q.correct_answer,
-        }));
-
-        const prompt = `Kamu adalah dosen dan pembuat soal ujian akademik universitas.
-Tugasmu: Parafrase SEMUA butir soal pilihan ganda di bawah ini secara serentak untuk Mode Ujian Challenge.
-Tujuannya adalah menguji pemahaman konsep siswa, BUKAN sekadar hafalan kalimat.
+    const prompt = `Kamu adalah dosen dan pembuat soal ujian akademik universitas.
+Tugasmu: Parafrase SEMUA butir soal pilihan ganda di bawah ini untuk Mode Ujian Challenge.
+Tujuannya menguji pemahaman konsep, BUKAN hafalan kalimat.
 
 Instruksi Wajib:
-1. Tulis ulang 'question_text' dengan sudut pandang, skenario, atau kalimat baru yang segar tetapi menanyakan konsep ilmiah/materi yang PERSIS SAMA.
-2. Variasikan kalimat pada 'option_a', 'option_b', 'option_c', dan 'option_d'.
-3. SANGAT KRUSIAL: Pilihan jawaban yang benar HARUS TETAP BERADA di huruf yang sama dengan 'correct_answer' aslinya, sehingga kunci jawaban tidak berubah!
-4. Kembalikan HANYA array JSON valid (tanpa markdown backtick):
+1. Tulis ulang 'question_text' dengan struktur kalimat, sudut pandang, atau skenario BARU. DILARANG menyalin kalimat asli; kalimat hasil tidak boleh sama atau hanya beda satu-dua kata dengan aslinya. Konsep yang ditanyakan harus PERSIS SAMA.
+2. Tulis ulang 'option_a' sampai 'option_d' dengan kata-kata berbeda tetapi makna tetap sama. Jangan mengubah fakta, angka, atau satuan.
+3. Pilihan yang benar HARUS tetap di huruf yang sama dengan 'correct_answer' aslinya.
+4. Kembalikan HANYA array JSON valid (tanpa markdown backtick) berisi SEMUA soal:
 [
-  {
-    "index": 0,
-    "question_text": "...",
-    "option_a": "...",
-    "option_b": "...",
-    "option_c": "...",
-    "option_d": "...",
-    "correct_answer": "..."
-  }
+  { "index": 0, "question_text": "...", "option_a": "...", "option_b": "...", "option_c": "...", "option_d": "...", "correct_answer": "..." }
 ]
 
 Daftar Soal Sumber:
 ${JSON.stringify(promptInput, null, 2)}`;
 
-        try {
-            const raw = await geminiText(prompt);
-            const cleaned = cleanJson(raw);
-            const parsed = JSON.parse(cleaned);
+    try {
+        const raw = await geminiText(prompt);
+        const parsed = JSON.parse(cleanJson(raw));
+        return Array.isArray(parsed) ? parsed : null;
+    } catch (err) {
+        console.error('Error saat paraphrase chunk:', err);
+        return null;
+    }
+}
 
-            if (Array.isArray(parsed)) {
-                for (let j = 0; j < chunk.length; j++) {
-                    const originalQ = chunk[j];
-                    const pQ = parsed.find((p: any) => p.index === j) || parsed[j];
-                    if (pQ && pQ.question_text) {
-                        allParaphrased.push({
-                            ...originalQ,
-                            question_text: pQ.question_text,
-                            option_a: pQ.option_a || originalQ.option_a,
-                            option_b: pQ.option_b || originalQ.option_b,
-                            option_c: pQ.option_c || originalQ.option_c,
-                            option_d: pQ.option_d || originalQ.option_d,
-                            correct_answer: originalQ.correct_answer,
-                            is_paraphrased: true,
-                        });
-                    } else {
-                        allParaphrased.push({ ...originalQ, is_paraphrased: false });
-                    }
+function isValidParaphrase(original: any, p: any): boolean {
+    if (!p || !p.question_text) return false;
+    if (normText(p.question_text) === normText(original.question_text)) return false;
+    for (const k of OPTION_KEYS) {
+        const key = `option_${k.toLowerCase()}`;
+        if (original[key] && !String(p[key] ?? '').trim()) return false;
+    }
+    return true;
+}
+
+// Acak posisi opsi dan petakan ulang kunci jawaban.
+function shuffleOptions(q: any): any {
+    const letters = OPTION_KEYS.filter((k) => q[`option_${k.toLowerCase()}`]);
+    const correct = String(q.correct_answer ?? '').toUpperCase();
+    if (letters.length < 2 || !(letters as readonly string[]).includes(correct)) return q;
+
+    const items = letters.map((k) => ({ k: k as string, text: q[`option_${k.toLowerCase()}`] }));
+    const shuffled = [...items].sort(() => Math.random() - 0.5);
+    const result: any = { ...q };
+    letters.forEach((slot, i) => {
+        result[`option_${slot.toLowerCase()}`] = shuffled[i].text;
+        if (shuffled[i].k === correct) result.correct_answer = slot;
+    });
+    return result;
+}
+
+export async function batchParaphraseQuestions(
+    questions: any[]
+): Promise<{ questions: any[]; failedCount: number }> {
+    if (!questions || questions.length === 0) return { questions: [], failedCount: 0 };
+
+    const chunkSize = 10;
+    const results: any[] = [];
+    let failedCount = 0;
+
+    for (let i = 0; i < questions.length; i += chunkSize) {
+        const chunk = questions.slice(i, i + chunkSize);
+        let pending = chunk.map((_, j) => j);
+        const done: Record<number, any> = {};
+
+        // Maksimal 2 percobaan; percobaan kedua hanya untuk soal yang gagal validasi
+        for (let attempt = 0; attempt < 2 && pending.length > 0; attempt++) {
+            const subset = pending.map((j) => chunk[j]);
+            const parsed = await paraphraseChunk(subset);
+            if (!parsed) continue;
+
+            const stillPending: number[] = [];
+            pending.forEach((origIdx, subIdx) => {
+                const original = chunk[origIdx];
+                const pQ = parsed.find((p: any) => p?.index === subIdx) || parsed[subIdx];
+                if (isValidParaphrase(original, pQ)) {
+                    done[origIdx] = shuffleOptions({
+                        ...original,
+                        question_text: pQ.question_text,
+                        option_a: pQ.option_a || original.option_a,
+                        option_b: pQ.option_b || original.option_b,
+                        option_c: pQ.option_c || original.option_c,
+                        option_d: pQ.option_d || original.option_d,
+                        correct_answer: original.correct_answer,
+                        is_paraphrased: true,
+                    });
+                } else {
+                    stillPending.push(origIdx);
                 }
-            } else {
-                allParaphrased.push(...chunk);
-            }
-        } catch (err) {
-            console.error('Error saat batch paraphrase chunk:', err);
-            allParaphrased.push(...chunk);
+            });
+            pending = stillPending;
         }
+
+        chunk.forEach((original, j) => {
+            if (done[j]) {
+                results.push(done[j]);
+            } else {
+                failedCount++;
+                results.push({ ...original, is_paraphrased: false });
+            }
+        });
     }
 
-    return allParaphrased;
+    return { questions: results, failedCount };
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // Mode Event: Ambil 30 Soal Acak dari Multiple KB

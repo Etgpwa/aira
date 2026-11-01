@@ -41,6 +41,7 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
     const [step, setStep] = useState<'SELECT' | 'CONFIRM' | 'SUCCESS'>('SELECT');
     const [isVerified, setIsVerified] = useState(false);
     const [receiptData, setReceiptData] = useState<any>(null);
+    const [isSharing, setIsSharing] = useState(false);
 
     // Delete state
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -146,6 +147,85 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
             }
             onClose();
         });
+    };
+
+    const handleShare = async () => {
+        if (!receiptData || isSharing) return;
+
+        setIsSharing(true);
+        const text = `*KUITANSI PEMBAYARAN*\n\nTerkait: ${receiptData.personName}\nTanggal: ${receiptData.date}\nTotal Dibayar: Rp ${Number(receiptData.paidAmount || 0).toLocaleString('id-ID')}\n${receiptData.isSettled ? '(Status: Sudah Dianggap Lunas)' : ''}\n\n_Dibuat otomatis dari Asisten Pribadi Karen_`;
+
+        try {
+            const cardEl = document.getElementById('receipt-card');
+            if (!cardEl) throw new Error('Receipt card element not found');
+
+            // Import html2canvas dynamically
+            const html2canvas = (await import('html2canvas')).default;
+
+            const canvas = await html2canvas(cardEl, {
+                scale: 3, // Skala 3x agar teks tajam dan tidak pecah saat dikirim ke WA
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+            });
+
+            const blob = await new Promise<Blob | null>((resolve) => 
+                canvas.toBlob(resolve, 'image/png')
+            );
+
+            if (!blob) throw new Error('Gagal mengonversi gambar');
+
+            const fileName = `Kuitansi_${receiptData.personName.replace(/\s+/g, '_')}.png`;
+            const file = new File([blob], fileName, { type: 'image/png' });
+
+            // Cek apakah peramban mendukung share berkas (Web Share API Level 2 pada Android & iOS)
+            if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: 'Kuitansi Pembayaran',
+                    text: text,
+                });
+            } else if (typeof navigator !== 'undefined' && navigator.share) {
+                // Fallback jika browser HP hanya support share text: unduh gambar lalu bagikan teks
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                await navigator.share({
+                    title: 'Kuitansi Pembayaran',
+                    text: `${text}\n\n(File gambar kuitansi telah tersimpan di perangkat Anda)`,
+                });
+            } else {
+                // Fallback untuk desktop PC: download gambar dan buka WhatsApp Web
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                if (typeof window !== 'undefined') {
+                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
+                }
+            }
+        } catch (err: any) {
+            console.error('Error sharing image receipt:', err);
+            // Fallback teks jika ada error pada canvas
+            if (typeof navigator !== 'undefined' && navigator.share) {
+                await navigator.share({ title: 'Kuitansi Pembayaran', text }).catch(() => {});
+            } else if (typeof window !== 'undefined') {
+                window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
+            }
+        } finally {
+            setIsSharing(false);
+        }
     };
 
     const needsCaptcha = isSettled && totalSelected > 0 && parseFloat(amount.replace(/[^0-9.-]+/g, '') || '0') !== totalSelected;
@@ -362,29 +442,35 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                         <h2 className="text-2xl font-extrabold text-on-surface mb-2">Berhasil!</h2>
                         <p className="text-secondary text-sm mb-6">Pembayaran telah dicatat ke sistem.</p>
 
-                        {/* Struk Rincian (Printable) */}
-                        <div id="receipt-card" className="w-full bg-surface-bright border border-surface-variant rounded-2xl p-5 text-left mb-6 relative overflow-hidden">
+                        {/* Struk Rincian (Printable & Exportable to Image) */}
+                        <div id="receipt-card" className="w-full bg-white border border-surface-variant rounded-2xl p-5 sm:p-6 text-left mb-6 relative overflow-hidden shadow-sm">
                             {/* Decorative dots */}
                             <div className="absolute top-0 left-0 w-full h-2 flex justify-around opacity-20">
                                 {[...Array(20)].map((_, i) => <div key={i} className="w-1 h-1 rounded-full bg-on-surface"></div>)}
                             </div>
                             
-                            <h3 className="text-center font-black text-on-surface uppercase tracking-widest text-sm mb-4 mt-2">KUITANSI PEMBAYARAN</h3>
-                            
-                            <div className="flex justify-between text-xs text-secondary mb-1">
-                                <span>Tanggal</span>
-                                <span>{receiptData.date}</span>
+                            <div className="text-center mb-4 mt-1">
+                                <span className="inline-block px-3 py-0.5 bg-mint-bg text-mint-fg text-[10px] font-bold rounded-full uppercase tracking-wider mb-2">
+                                    Lunas / Terverifikasi
+                                </span>
+                                <h3 className="font-black text-on-surface uppercase tracking-widest text-sm sm:text-base">KUITANSI PEMBAYARAN</h3>
+                                <p className="text-[10px] text-secondary font-medium mt-0.5">Asisten Pribadi Karen</p>
                             </div>
-                            <div className="flex justify-between text-sm font-bold text-on-surface mb-4">
+                            
+                            <div className="flex justify-between text-xs text-secondary mb-1.5">
+                                <span>Tanggal</span>
+                                <span className="font-bold text-on-surface">{receiptData.date}</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-bold text-on-surface mb-3">
                                 <span>Terkait</span>
-                                <span>{receiptData.personName}</span>
+                                <span className="text-primary font-black">{receiptData.personName}</span>
                             </div>
 
-                            <div className="border-t border-dashed border-surface-variant my-4"></div>
+                            <div className="border-t border-dashed border-surface-variant my-3"></div>
 
                             <div className="flex justify-between text-sm mb-2">
-                                <span className="text-secondary">Tagihan Dibayar</span>
-                                <span className="font-bold">Rp {Number(receiptData.totalTarget || 0).toLocaleString('id-ID')}</span>
+                                <span className="text-secondary font-medium">Tagihan Dibayar</span>
+                                <span className="font-bold text-on-surface">Rp {Number(receiptData.totalTarget || 0).toLocaleString('id-ID')}</span>
                             </div>
                             <div className="flex justify-between text-lg font-black text-primary mb-2">
                                 <span>Uang Diterima/Keluar</span>
@@ -392,7 +478,7 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                             </div>
 
                             {receiptData.isSettled && (receiptData.excessPayment || 0) !== 0 && (
-                                <div className="flex justify-between text-xs font-bold mt-3 p-2 bg-surface-container rounded-lg">
+                                <div className="flex justify-between text-xs font-bold mt-2.5 p-2.5 bg-surface-container rounded-xl">
                                     <span>{(receiptData.excessPayment || 0) > 0 ? 'Ekstra/Tip' : 'Selisih Diikhlaskan'}</span>
                                     <span className={(receiptData.excessPayment || 0) > 0 ? 'text-mint-fg' : 'text-danger'}>
                                         Rp {Math.abs(receiptData.excessPayment || 0).toLocaleString('id-ID')}
@@ -401,28 +487,43 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                             )}
 
                              {!receiptData.isSettled && (Number(receiptData.paidAmount || 0) - Number(receiptData.totalTarget || 0) < 0) && (
-                                <div className="flex justify-between text-xs font-bold mt-3 p-2 bg-peach-bg/30 text-peach-fg rounded-lg">
+                                <div className="flex justify-between text-xs font-bold mt-2.5 p-2.5 bg-peach-bg/30 text-peach-fg rounded-xl">
                                     <span>Sisa Tagihan Tertunggak</span>
                                     <span>Rp {Math.abs(Number(receiptData.paidAmount || 0) - Number(receiptData.totalTarget || 0)).toLocaleString('id-ID')}</span>
                                 </div>
                             )}
+
+                            <div className="border-t border-dashed border-surface-variant mt-4 pt-2.5 text-center">
+                                <p className="text-[10px] text-secondary font-medium italic">
+                                    Bukti pembayaran sah tercatat di sistem Karen
+                                </p>
+                            </div>
                         </div>
 
                         <div className="flex gap-3 w-full">
                             <button 
-                                onClick={() => {
-                                    const text = `*KUITANSI PEMBAYARAN*\n\nTerkait: ${receiptData.personName}\nTanggal: ${receiptData.date}\nTotal Dibayar: Rp ${Number(receiptData.paidAmount || 0).toLocaleString('id-ID')}\n${receiptData.isSettled ? '(Sudah Dianggap Lunas)' : ''}\n\n_Dibuat otomatis dari Asisten Pribadi Karen_`;
-                                    if (typeof navigator !== 'undefined' && navigator.share) {
-                                        navigator.share({ title: 'Kuitansi', text }).catch(() => {});
-                                    } else if (typeof window !== 'undefined') {
-                                        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
-                                    }
-                                }} 
-                                className="flex-1 bg-surface-container text-on-surface py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                                type="button"
+                                onClick={handleShare}
+                                disabled={isSharing}
+                                className="flex-1 bg-surface-container hover:bg-surface-container-high text-on-surface py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                             >
-                                <Share2 className="w-4 h-4" /> Bagikan
+                                {isSharing ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                        <span>Menyiapkan Gambar...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Share2 className="w-4 h-4 text-primary" />
+                                        <span>Bagikan</span>
+                                    </>
+                                )}
                             </button>
-                            <button onClick={onClose} className="flex-1 bg-primary text-on-primary py-3 rounded-xl font-bold text-sm">
+                            <button 
+                                type="button"
+                                onClick={onClose} 
+                                className="flex-1 bg-primary text-on-primary py-3.5 rounded-xl font-bold text-sm transition-all active:scale-[0.98] shadow-md"
+                            >
                                 Selesai
                             </button>
                         </div>

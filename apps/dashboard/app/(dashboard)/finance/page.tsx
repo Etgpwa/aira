@@ -78,13 +78,15 @@ export default async function FinancePage() {
         .gte('transaction_date', startOfMonth);
 
       budgetsList = bgtsRes.data.map((b: any) => {
+        const catId = Array.isArray(b.transaction_categories) ? b.transaction_categories[0]?.id : b.transaction_categories?.id;
+        const catName = Array.isArray(b.transaction_categories) ? b.transaction_categories[0]?.name : (b.transaction_categories?.name || 'Lainnya');
         const spent = bgtTxs
-          ? bgtTxs.filter(t => t.category_id === b.transaction_categories?.id)
+          ? bgtTxs.filter(t => t.category_id === catId)
                   .reduce((sum, t) => sum + Number(t.amount), 0)
           : 0;
         return {
           id: b.id,
-          categoryName: b.transaction_categories?.name || 'Lainnya',
+          categoryName: catName,
           amount: Number(b.amount),
           spent
         };

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useTransition, useMemo } from 'react';
-import { X, Loader2, Check, ArrowRight, Share2, Printer, CheckSquare, Square, ShieldAlert } from 'lucide-react';
-import { payDebtManual, deleteDebtManual } from '../actions';
+import { X, Loader2, Check, ArrowRight, Share2, Printer, CheckSquare, Square, ShieldAlert, Trash2 } from 'lucide-react';
+import { payDebtManual, deleteDebtManual, deletePersonDebts } from '../actions';
 import PuzzleSlider from './PuzzleSlider';
 
 interface Debt {
@@ -44,8 +44,8 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
 
     // Delete state
     const [deleteId, setDeleteId] = useState<string | null>(null);
-    const [password, setPassword] = useState('');
     const [isDeleting, startDeleteTransition] = useTransition();
+    const [isDeletingPerson, startDeletePersonTransition] = useTransition();
 
     const [isPending, startTransition] = useTransition();
     const [errorMessage, setErrorMessage] = useState('');
@@ -58,7 +58,7 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
     };
 
     const totalSelected = useMemo(() => {
-        return debts.filter(d => selectedDebtIds.has(d.id)).reduce((sum, d) => sum + Number(d.remaining_amount), 0);
+        return (debts || []).filter(d => selectedDebtIds.has(d.id)).reduce((sum, d) => sum + Number(d.remaining_amount), 0);
     }, [debts, selectedDebtIds]);
 
     const handleNext = () => {
@@ -82,6 +82,7 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
 
     const handleSubmit = async () => {
         const rawAmount = parseFloat(amount.replace(/[^0-9.-]+/g, ''));
+        const targetAmountToPay = totalSelected;
         setErrorMessage('');
         
         startTransition(async () => {
@@ -97,8 +98,8 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                 setReceiptData({
                     personName,
                     paidAmount: rawAmount,
-                    totalTarget: totalSelected,
-                    excessPayment: res.excessPayment,
+                    totalTarget: targetAmountToPay,
+                    excessPayment: res?.excessPayment || 0,
                     isSettled,
                     date: new Date().toLocaleString('id-ID')
                 });
@@ -112,22 +113,38 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
     const handleDelete = (id: string) => {
         setErrorMessage('');
         startDeleteTransition(async () => {
-            try {
-                await deleteDebtManual(id, password);
-                setDeleteId(null);
-                setPassword('');
-                // If it's the last debt, close modal
-                if (debts.length <= 1) {
-                    onClose();
-                } else {
-                    // Update selection
-                    if (selectedDebtIds.has(id)) {
-                        toggleSelection(id);
-                    }
-                }
-            } catch (err: any) {
-                setErrorMessage(err?.message || 'Gagal menghapus data. Password salah?');
+            const res = await deleteDebtManual(id);
+            if (!res.success) {
+                setErrorMessage(res.error || 'Gagal menghapus data.');
+                return;
             }
+            setDeleteId(null);
+            // If it's the last debt, close modal
+            if ((debts || []).length <= 1) {
+                onClose();
+            } else {
+                // Update selection
+                if (selectedDebtIds.has(id)) {
+                    toggleSelection(id);
+                }
+            }
+        });
+    };
+
+    const handleDeletePerson = () => {
+        const isConfirmed = confirm(
+            `Hapus seluruh catatan tagihan atas nama "${personName}" dari daftar?\n\nSemua data tagihan orang ini akan dihapus permanen tanpa memotong atau menambah saldo kas.`
+        );
+        if (!isConfirmed) return;
+
+        setErrorMessage('');
+        startDeletePersonTransition(async () => {
+            const res = await deletePersonDebts(personName);
+            if (!res.success) {
+                setErrorMessage(res.error || 'Gagal menghapus data orang');
+                return;
+            }
+            onClose();
         });
     };
 
@@ -144,16 +161,29 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
 
                 {step === 'SELECT' && (
                     <>
-                        <div className="mb-5">
-                            <h2 className="text-xl font-extrabold text-on-surface">Detail Tagihan</h2>
-                            <p className="text-sm font-bold text-primary mt-0.5">{personName}</p>
+                        <div className="mb-5 pr-10 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xl font-extrabold text-on-surface">Detail Tagihan</h2>
+                                <p className="text-sm font-bold text-primary mt-0.5">{personName}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleDeletePerson}
+                                disabled={isDeletingPerson}
+                                className="text-xs font-bold text-danger bg-red-50 hover:bg-red-100 border border-red-200/60 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                                title={`Hapus seluruh tagihan ${personName} dari daftar`}
+                            >
+                                {isDeletingPerson ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                <span>Hapus Orang</span>
+                            </button>
                         </div>
 
                         <div className="flex flex-col gap-3 mb-5 max-h-[40vh] overflow-y-auto pr-1">
-                            {debts.map(debt => (
+                            {(debts || []).map(debt => (
                                 <div key={debt.id} className="relative bg-surface-bright rounded-[16px] border border-surface-variant p-3 flex flex-col gap-2 shrink-0">
                                     <div className="flex items-start gap-3">
                                         <button 
+                                            type="button"
                                             onClick={() => toggleSelection(debt.id)}
                                             className="mt-1 flex-shrink-0 text-primary"
                                         >
@@ -175,23 +205,40 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                                     {/* Hapus Button & Form */}
                                     <div className="mt-2 pt-2 border-t border-surface-variant flex flex-col gap-2">
                                         {deleteId === debt.id ? (
-                                            <div className="flex flex-col gap-2 p-2 bg-red-50/50 rounded-lg">
-                                                <p className="text-xs font-bold text-danger flex items-center gap-1"><ShieldAlert className="w-3 h-3"/> Konfirmasi Hapus</p>
-                                                <input 
-                                                    type="password" 
-                                                    value={password}
-                                                    onChange={e => setPassword(e.target.value)}
-                                                    placeholder="Masukkan password login"
-                                                    className="w-full text-xs px-3 py-2 rounded-lg bg-surface border border-danger/30 text-on-surface"
-                                                />
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => setDeleteId(null)} className="flex-1 py-1.5 text-xs font-bold text-secondary bg-surface-container rounded-lg">Batal</button>
-                                                    <button onClick={() => handleDelete(debt.id)} disabled={isDeleting} className="flex-1 py-1.5 text-xs font-bold text-white bg-danger rounded-lg">{isDeleting ? 'Menghapus...' : 'Ya, Hapus'}</button>
+                                            <div className="flex flex-col gap-2 p-2.5 bg-red-50/70 border border-danger/20 rounded-xl">
+                                                <p className="text-xs font-bold text-danger flex items-center gap-1.5">
+                                                    <ShieldAlert className="w-3.5 h-3.5"/> Hapus tagihan ini?
+                                                </p>
+                                                <p className="text-[11px] text-secondary">
+                                                    Catatan akan dihapus permanen dari daftar tanpa transaksi kas.
+                                                </p>
+                                                <div className="flex gap-2 mt-1">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setDeleteId(null)} 
+                                                        className="flex-1 py-1.5 text-xs font-bold text-secondary bg-surface-container rounded-lg"
+                                                    >
+                                                        Batal
+                                                    </button>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => handleDelete(debt.id)} 
+                                                        disabled={isDeleting} 
+                                                        className="flex-1 py-1.5 text-xs font-bold text-white bg-danger rounded-lg flex items-center justify-center gap-1 shadow-sm"
+                                                    >
+                                                        {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Ya, Hapus'}
+                                                    </button>
                                                 </div>
                                             </div>
                                         ) : (
                                             <div className="flex justify-end">
-                                                <button onClick={() => setDeleteId(debt.id)} className="text-[10px] font-bold text-danger hover:underline">Hapus Data Ini</button>
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setDeleteId(debt.id)} 
+                                                    className="text-[11px] font-bold text-danger hover:underline flex items-center gap-1"
+                                                >
+                                                    <Trash2 className="w-3 h-3" /> Hapus Tagihan Ini
+                                                </button>
                                             </div>
                                         )}
                                     </div>
@@ -337,26 +384,26 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
 
                             <div className="flex justify-between text-sm mb-2">
                                 <span className="text-secondary">Tagihan Dibayar</span>
-                                <span className="font-bold">Rp {receiptData.totalTarget.toLocaleString('id-ID')}</span>
+                                <span className="font-bold">Rp {Number(receiptData.totalTarget || 0).toLocaleString('id-ID')}</span>
                             </div>
                             <div className="flex justify-between text-lg font-black text-primary mb-2">
                                 <span>Uang Diterima/Keluar</span>
-                                <span>Rp {receiptData.paidAmount.toLocaleString('id-ID')}</span>
+                                <span>Rp {Number(receiptData.paidAmount || 0).toLocaleString('id-ID')}</span>
                             </div>
 
-                            {receiptData.isSettled && receiptData.excessPayment !== 0 && (
+                            {receiptData.isSettled && (receiptData.excessPayment || 0) !== 0 && (
                                 <div className="flex justify-between text-xs font-bold mt-3 p-2 bg-surface-container rounded-lg">
-                                    <span>{receiptData.excessPayment > 0 ? 'Ekstra/Tip' : 'Selisih Diikhlaskan'}</span>
-                                    <span className={receiptData.excessPayment > 0 ? 'text-mint-fg' : 'text-danger'}>
-                                        Rp {Math.abs(receiptData.excessPayment).toLocaleString('id-ID')}
+                                    <span>{(receiptData.excessPayment || 0) > 0 ? 'Ekstra/Tip' : 'Selisih Diikhlaskan'}</span>
+                                    <span className={(receiptData.excessPayment || 0) > 0 ? 'text-mint-fg' : 'text-danger'}>
+                                        Rp {Math.abs(receiptData.excessPayment || 0).toLocaleString('id-ID')}
                                     </span>
                                 </div>
                             )}
 
-                             {!receiptData.isSettled && (receiptData.paidAmount - receiptData.totalTarget < 0) && (
+                             {!receiptData.isSettled && (Number(receiptData.paidAmount || 0) - Number(receiptData.totalTarget || 0) < 0) && (
                                 <div className="flex justify-between text-xs font-bold mt-3 p-2 bg-peach-bg/30 text-peach-fg rounded-lg">
                                     <span>Sisa Tagihan Tertunggak</span>
-                                    <span>Rp {Math.abs(receiptData.paidAmount - receiptData.totalTarget).toLocaleString('id-ID')}</span>
+                                    <span>Rp {Math.abs(Number(receiptData.paidAmount || 0) - Number(receiptData.totalTarget || 0)).toLocaleString('id-ID')}</span>
                                 </div>
                             )}
                         </div>
@@ -364,10 +411,10 @@ export default function PayDebtModal({ personName, debts, accounts, onClose }: P
                         <div className="flex gap-3 w-full">
                             <button 
                                 onClick={() => {
-                                    const text = `*KUITANSI PEMBAYARAN*\n\nTerkait: ${receiptData.personName}\nTanggal: ${receiptData.date}\nTotal Dibayar: Rp ${receiptData.paidAmount.toLocaleString('id-ID')}\n${receiptData.isSettled ? '(Sudah Dianggap Lunas)' : ''}\n\n_Dibuat otomatis dari Asisten Pribadi Karen_`;
-                                    if (navigator.share) {
+                                    const text = `*KUITANSI PEMBAYARAN*\n\nTerkait: ${receiptData.personName}\nTanggal: ${receiptData.date}\nTotal Dibayar: Rp ${Number(receiptData.paidAmount || 0).toLocaleString('id-ID')}\n${receiptData.isSettled ? '(Sudah Dianggap Lunas)' : ''}\n\n_Dibuat otomatis dari Asisten Pribadi Karen_`;
+                                    if (typeof navigator !== 'undefined' && navigator.share) {
                                         navigator.share({ title: 'Kuitansi', text }).catch(() => {});
-                                    } else {
+                                    } else if (typeof window !== 'undefined') {
                                         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
                                     }
                                 }} 

@@ -390,30 +390,51 @@ export async function payDebtManual(data: {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 7. Hapus Utang (Dengan Verifikasi Password)
+// 7. Hapus Utang Manual (Per Item) Tanpa Transaksi Kas
 // ────────────────────────────────────────────────────────────────
-export async function deleteDebtManual(debtId: string, passwordInput: string) {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !user.email) throw new Error('Tidak terautentikasi');
+export async function deleteDebtManual(debtId: string) {
+    try {
+        const supabase = createClient();
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
+        if (userErr || !user) return { success: false, error: 'Tidak terautentikasi' };
 
-    // 1. Verifikasi Password (menggunakan signInWithPassword bawaan Supabase auth)
-    // NOTE: ini memerlukan email, asumsinya signIn mengandalkan email/password. 
-    // Di PWA ini jika login pakai magic link / OTP, mungkin tidak ada password. 
-    // Tapi karena user minta 'masukan password', kita coba panggil signInWithPassword.
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: passwordInput,
-    });
+        const { error } = await supabase
+            .from('debts')
+            .delete()
+            .eq('id', debtId)
+            .eq('user_id', user.id);
 
-    if (signInError) {
-        throw new Error('Password salah atau tidak valid');
+        if (error) return { success: false, error: error.message || 'Gagal menghapus tagihan' };
+
+        revalidatePath('/finance');
+        revalidatePath('/');
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err?.message || 'Gagal memproses penghapusan tagihan' };
     }
+}
 
-    // 2. Hapus
-    const { error } = await supabase.from('debts').delete().eq('id', debtId).eq('user_id', user.id);
-    if (error) throw error;
+// ────────────────────────────────────────────────────────────────
+// 8. Hapus Seluruh Tagihan Orang Tertentu Tanpa Transaksi Kas
+// ────────────────────────────────────────────────────────────────
+export async function deletePersonDebts(personName: string) {
+    try {
+        const supabase = createClient();
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
+        if (userErr || !user) return { success: false, error: 'Tidak terautentikasi' };
 
-    revalidatePath('/finance');
-    return { success: true };
+        const { error } = await supabase
+            .from('debts')
+            .delete()
+            .eq('person_name', personName)
+            .eq('user_id', user.id);
+
+        if (error) return { success: false, error: error.message || 'Gagal menghapus data orang' };
+
+        revalidatePath('/finance');
+        revalidatePath('/');
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err?.message || 'Gagal memproses penghapusan data orang' };
+    }
 }

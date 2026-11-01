@@ -32,9 +32,14 @@ export default function TransactionHistoryList({ transactions }: TransactionHist
     };
 
     const handleDelete = (tx: TransactionItem) => {
-        const title = tx.transaction_categories?.name || tx.description || 'Transaksi';
+        const catName = Array.isArray(tx.transaction_categories)
+            ? tx.transaction_categories[0]?.name
+            : tx.transaction_categories?.name || tx.description || 'Transaksi';
+        const title = catName;
         const nominal = formatRupiah(Number(tx.amount));
-        const bankName = tx.bank_accounts?.name || 'rekening';
+        const bankName = Array.isArray(tx.bank_accounts)
+            ? tx.bank_accounts[0]?.name
+            : tx.bank_accounts?.name || 'rekening';
         const actionText = tx.type === 'expense' ? `dikembalikan ke ${bankName}` : `dipotong kembali dari ${bankName}`;
 
         const isConfirmed = confirm(
@@ -101,8 +106,12 @@ export default function TransactionHistoryList({ transactions }: TransactionHist
                 <div className="flex flex-col gap-1">
                     {transactions.map(tx => {
                         const isThisDeleting = deletingId === tx.id;
-                        const catName = tx.transaction_categories?.name || tx.description || 'Transaksi';
-                        const bankName = tx.bank_accounts?.name || 'Kas';
+                        const catName = Array.isArray(tx.transaction_categories)
+                            ? tx.transaction_categories[0]?.name
+                            : tx.transaction_categories?.name || tx.description || 'Transaksi';
+                        const bankName = Array.isArray(tx.bank_accounts)
+                            ? tx.bank_accounts[0]?.name
+                            : tx.bank_accounts?.name || 'Kas';
 
                         return (
                             <div

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { Clock, CheckCircle2, ChevronRight } from 'lucide-react';
+import { useState, useTransition } from 'react';
+import { Clock, CheckCircle2, ChevronRight, Trash2, Loader2 } from 'lucide-react';
 import AddDebtModal from './AddDebtModal';
 import PayDebtModal from './PayDebtModal';
+import { deletePersonDebts } from '../actions';
 
 interface Debt {
     id: string;
@@ -30,7 +31,7 @@ interface DebtSectionProps {
 
 export default function DebtSection({ debts, accounts }: DebtSectionProps) {
     // Group debts by person_name
-    const groupedDebts = debts.reduce((acc, debt) => {
+    const groupedDebts = (debts || []).reduce((acc, debt) => {
         const name = debt.person_name;
         if (!acc[name]) acc[name] = { personName: name, totalRemaining: 0, items: [] };
         acc[name].totalRemaining += Number(debt.remaining_amount);
@@ -41,6 +42,42 @@ export default function DebtSection({ debts, accounts }: DebtSectionProps) {
     const groupList = Object.values(groupedDebts).sort((a, b) => b.totalRemaining - a.totalRemaining);
 
     const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+    const [cachedDebts, setCachedDebts] = useState<Debt[]>([]);
+    const [deletingPerson, setDeletingPerson] = useState<string | null>(null);
+    const [isDeletingDirect, startDeleteDirectTransition] = useTransition();
+
+    const handleSelectPerson = (group: { personName: string; items: Debt[] }) => {
+        setSelectedPerson(group.personName);
+        setCachedDebts(group.items);
+    };
+
+    const handleCloseModal = () => {
+        setSelectedPerson(null);
+        setCachedDebts([]);
+    };
+
+    const handleDeletePersonDirect = (e: React.MouseEvent, personName: string) => {
+        e.stopPropagation();
+        const isConfirmed = confirm(
+            `Hapus seluruh catatan tagihan atas nama "${personName}" dari daftar?\n\nSemua data tagihan orang ini akan dihapus permanen tanpa transaksi kas.`
+        );
+        if (!isConfirmed) return;
+
+        setDeletingPerson(personName);
+        startDeleteDirectTransition(async () => {
+            const res = await deletePersonDebts(personName);
+            if (!res.success) {
+                alert(res.error || 'Gagal menghapus data orang');
+            }
+            setDeletingPerson(null);
+        });
+    };
+
+    // Ambil data items aktif atau gunakan cachedDebts saat status hutang sudah lunas (PAID)
+    // agar modal receipt/struk tidak crash karena groupedDebts[selectedPerson] menjadi undefined setelah revalidasi server
+    const activeDebts = selectedPerson
+        ? (groupedDebts[selectedPerson]?.items || cachedDebts)
+        : [];
 
     return (
         <section className="mb-6">
@@ -63,7 +100,7 @@ export default function DebtSection({ debts, accounts }: DebtSectionProps) {
                     return (
                         <div 
                             key={group.personName} 
-                            onClick={() => setSelectedPerson(group.personName)}
+                            onClick={() => handleSelectPerson(group)}
                             className="bg-surface-bright p-4 rounded-[20px] border border-surface-variant shadow-[0_8px_24px_rgba(24,26,42,0.04)] flex justify-between items-center gap-4 cursor-pointer hover:border-primary/50 transition-colors"
                         >
                             <div className="min-w-0 flex-1">
@@ -75,11 +112,26 @@ export default function DebtSection({ debts, accounts }: DebtSectionProps) {
                                 </div>
                                 <p className="text-xs text-secondary line-clamp-1">Klik untuk melihat detail atau lunasi</p>
                             </div>
-                            <div className="text-right flex-shrink-0">
-                                <p className="font-bold text-on-surface tabular-nums mb-1">Rp {group.totalRemaining.toLocaleString('id-ID')}</p>
-                                <div className="flex items-center gap-1 justify-end text-primary text-xs font-bold">
-                                    Kelola <ChevronRight className="w-3 h-3" />
+                            <div className="text-right flex-shrink-0 flex items-center gap-1.5">
+                                <div>
+                                    <p className="font-bold text-on-surface tabular-nums mb-0.5">Rp {group.totalRemaining.toLocaleString('id-ID')}</p>
+                                    <div className="flex items-center gap-1 justify-end text-primary text-xs font-bold">
+                                        Kelola <ChevronRight className="w-3 h-3" />
+                                    </div>
                                 </div>
+                                <button
+                                    type="button"
+                                    onClick={(e) => handleDeletePersonDirect(e, group.personName)}
+                                    disabled={deletingPerson === group.personName && isDeletingDirect}
+                                    className="w-8 h-8 rounded-xl bg-surface-container hover:bg-red-50 hover:text-danger text-secondary flex items-center justify-center transition-colors ml-1"
+                                    title={`Hapus seluruh tagihan ${group.personName} dari daftar`}
+                                >
+                                    {deletingPerson === group.personName && isDeletingDirect ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-danger" />
+                                    ) : (
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                </button>
                             </div>
                         </div>
                     );
@@ -97,9 +149,9 @@ export default function DebtSection({ debts, accounts }: DebtSectionProps) {
             {selectedPerson && (
                 <PayDebtModal
                     personName={selectedPerson}
-                    debts={groupedDebts[selectedPerson].items}
+                    debts={activeDebts}
                     accounts={accounts}
-                    onClose={() => setSelectedPerson(null)}
+                    onClose={handleCloseModal}
                 />
             )}
         </section>

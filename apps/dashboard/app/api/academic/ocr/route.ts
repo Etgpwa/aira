@@ -4,13 +4,10 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { MAX_OCR_PHOTO_BASE64, parseOcrAnswerKey, parseOcrPage } from '@/app/(dashboard)/academic/quiz-ocr';
 import { QUIZ_OCR_PROMPTS } from '@/app/(dashboard)/academic/quiz-ocr-prompts';
+import { getOcrGeminiKeys, OCR_GEMINI_TIMEOUT_MS, runOcrGeminiRotation } from './gemini-rotation';
 
 export const maxDuration = 35;
 
-const PRIMARY_MODEL = 'gemini-3.8-flash';
-const FALLBACK_MODEL = 'gemini-3.6-flash';
-const PRIMARY_TIMEOUT_MS = 14_000;
-const RETRY_TIMEOUT_MS = 25_000;
 let nextKeyIndex = 0;
 
 function ocrError(error: string, status: number) {
@@ -18,7 +15,7 @@ function ocrError(error: string, status: number) {
 }
 
 export async function POST(request: Request) {
-    const deadline = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
+    const deadline = Date.now() + OCR_GEMINI_TIMEOUT_MS;
     const { data: { user }, error: authError } = await createClient().auth.getUser();
     if (!user) {
         if (authError && authError.status && authError.status >= 500) {
@@ -44,52 +41,43 @@ export async function POST(request: Request) {
         return ocrError('File foto terlalu besar. Pilih versi berukuran lebih kecil.', 413);
     }
 
-    const keys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map(key => key.trim()).filter(Boolean);
+    const keys = getOcrGeminiKeys(process.env.GEMINI_API_KEYS, process.env.GEMINI_API_KEY);
     if (!keys.length) return ocrError('API key Gemini belum dikonfigurasi di dashboard.', 503);
     const firstKey = nextKeyIndex % keys.length;
     nextKeyIndex = (firstKey + 1) % keys.length;
 
-    let model = PRIMARY_MODEL;
-    for (let attempt = 0; ; attempt++) {
-        const timeout = attempt === 0 ? PRIMARY_TIMEOUT_MS : RETRY_TIMEOUT_MS;
-        const signal = AbortSignal.any([deadline, AbortSignal.timeout(timeout)]);
-        try {
-            signal.throwIfAborted();
-            const ai = new GoogleGenAI({ apiKey: keys[(firstKey + attempt) % keys.length] });
-            const response = await ai.models.generateContent({
-                model,
-                contents: [{ inlineData: { mimeType, data: base64 } }, QUIZ_OCR_PROMPTS[kind]],
-                config: {
-                    responseMimeType: 'application/json',
-                    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-                    httpOptions: { timeout, retryOptions: { attempts: 1 } },
-                    abortSignal: signal,
-                },
-            });
-            const data = kind === 'questions'
-                ? parseOcrPage(response.text ?? '', typeof subjectName === 'string' ? subjectName : '', randomUUID)
-                : parseOcrAnswerKey(response.text ?? '');
-            return NextResponse.json({ data });
-        } catch (error) {
-            const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : 0;
-            const timedOut = signal.aborted || status === 408 || status === 504
-                || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name));
-            const badResponse = error instanceof SyntaxError;
-            const providerUnavailable = timedOut || status === 429 || status >= 500;
-            const retryable = providerUnavailable || badResponse || !status
-                || ([401, 403].includes(status) && keys.length > 1);
-            console.warn('Academic OCR request failed', { model, attempt: attempt + 1, status, timedOut, badResponse });
-            if (attempt === 0 && !deadline.aborted && retryable) {
-                if (providerUnavailable) model = FALLBACK_MODEL;
-                continue;
-            }
+    const result = await runOcrGeminiRotation(keys, firstKey, deadline, request.signal, async ({ key, model, signal }) => {
+        const ai = new GoogleGenAI({ apiKey: key });
+        const response = await ai.models.generateContent({
+            model,
+            contents: [{ inlineData: { mimeType, data: base64 } }, QUIZ_OCR_PROMPTS[kind]],
+            config: {
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+                // AbortSignal menjaga tenggat lokal tanpa mengirim deadline di bawah minimum Gemini.
+                httpOptions: { retryOptions: { attempts: 1 } },
+                abortSignal: signal,
+            },
+        });
+        return kind === 'questions'
+            ? parseOcrPage(response.text ?? '', typeof subjectName === 'string' ? subjectName : '', randomUUID)
+            : parseOcrAnswerKey(response.text ?? '');
+    }, data => 'questions' in data
+        ? !data.questions.length && !data.passages.length && !data.solutions.length
+        : !Object.keys(data).length);
 
-            if (timedOut) return ocrError('Gemini terlalu lama merespons. Ulangi scan foto ini.', 504);
-            if (badResponse) return ocrError('Respons OCR dari Gemini belum bisa dibaca. Ulangi scan foto ini.', 502);
-            if (status === 429 || status === 503) return ocrError('Gemini sedang sibuk atau kuotanya habis. Coba lagi sebentar.', 503);
-            if (status === 401 || status === 403 || status === 404) return ocrError('Gemini menolak akses OCR. Periksa API key dan akses model.', 502);
-            if (status === 400) return ocrError('Gemini menolak permintaan OCR. Coba kirim foto sebagai JPG atau PNG.', 502);
-            return ocrError('Koneksi ke Gemini gagal. Ulangi scan foto ini.', 502);
-        }
-    }
+    if ('data' in result) return NextResponse.json({ data: result.data });
+
+    const errors = {
+        access: ['Gemini menolak API key. Periksa izin dan status key di Google AI Studio.', 502],
+        quota: ['Kuota Gemini tercapai (429).', 429],
+        busy: ['Layanan Gemini sedang tidak tersedia (5xx).', 503],
+        timeout: ['Gemini terlalu lama merespons.', 504],
+        format: ['Respons OCR dari Gemini belum bisa dibaca.', 502],
+        network: ['Koneksi ke Gemini gagal.', 502],
+        request: ['Gemini menolak permintaan OCR.', 502],
+        model: ['Model OCR Gemini tidak tersedia untuk key yang dicoba.', 502],
+    } as const;
+    const [message, status] = errors[result.failure];
+    return ocrError(`${message} OCR mencoba ${result.triedKeys} dari ${keys.length} API key yang dikonfigurasi.`, status);
 }

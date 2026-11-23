@@ -63,6 +63,8 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 
 | **Fix Bug** | **Scan Soal atau Kunci Academic macet dan salah melaporkan foto buram**<br>OCR dashboard memakai Gemini 3.8 Flash lewat endpoint dengan batas waktu dan satu percobaan ulang. Gemini 3.6 Flash dipakai sebagai cadangan saat model utama terkena batas kuota, timeout, atau error 5xx. Respons daftar soal format lama serta bagian opsional yang hilang tetap bisa dibaca. Pratinjau membedakan kegagalan koneksi, sesi, kuota, atau format respons. | ✅ Diperbaiki |
 
+| **Fix Bug** | **Rotasi API key OCR Academic berhenti setelah dua key**<br>OCR mencoba key berbeda pada Gemini 3.8 Flash sebelum beralih ke model cadangan sesuai tenggat. Tenggat percobaan diberlakukan secara lokal agar Gemini tidak menolak sisa waktu yang terlalu pendek dengan HTTP 400. Kuota, penolakan key, dan gangguan Gemini ditampilkan secara terpisah bersama jumlah key yang dicoba. Lokasi env dashboard dan backend diperjelas. | ✅ Diperbaiki |
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

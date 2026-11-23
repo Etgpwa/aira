@@ -37,8 +37,9 @@ Untuk mencegah limit permintaan (Error 429) atau server overload (Error 503) dar
 - Memori ini berguna agar Karen mengerti jika pesan terbaru merujuk/merevisi pesan sesaat sebelumnya.
 
 ### OCR Academic di Dashboard
-- Scan Soal dan Scan Kunci memakai `gemini-3.8-flash` melalui `/api/academic/ocr`, dengan respons JSON dan tingkat *thinking* rendah. Percobaan ulang memakai `gemini-3.6-flash` bila model utama terkena batas kuota, timeout, atau error 5xx.
-- Endpoint memakai `GEMINI_API_KEYS` atau `GEMINI_API_KEY` yang sudah ada. Key bergantian tiap permintaan. Percobaan pertama dibatasi 14 detik. Satu percobaan ulang memakai key berikutnya jika tersedia dan dapat menggunakan hingga 25 detik dari tenggat total 30 detik. Durasi fungsi di Vercel ditetapkan 35 detik.
+- Scan Soal dan Scan Kunci memakai `gemini-3.8-flash` melalui `/api/academic/ocr`, dengan respons JSON dan tingkat *thinking* rendah. OCR mencoba setiap key yang berbeda pada model utama selama masih ada waktu. Setelah itu, `gemini-3.6-flash` dapat dipakai saat kuota, layanan, atau respons model utama bermasalah. Key yang ditolak tidak dicoba ulang pada model cadangan. Respons pertama yang kosong dapat dikonfirmasi lewat percobaan berikutnya.
+- Daftar key dipisahkan dengan koma. Endpoint membaca `GEMINI_API_KEYS`, lalu memakai `GEMINI_API_KEY` sebagai cadangan konfigurasi. Untuk dashboard lokal, gunakan `apps/dashboard/.env.local`. Dashboard yang berjalan di Vercel memakai Environment Variables proyek Vercel. Nilai `.env` di root dibaca backend WhatsApp saat dijalankan lokal.
+- Urutan mulai key bergantian tiap permintaan. Tenggat total OCR adalah 30 detik, dengan maksimal 18 detik untuk model utama dan sisa waktunya untuk model cadangan. Tenggat tiap percobaan diatur melalui `AbortSignal` lokal agar sisa waktu di bawah minimum Gemini tidak terkirim sebagai deadline di header. Log mencatat nomor urut key dan status kegagalan. Pesan gagal menunjukkan jumlah key yang dicoba.
 
 ## Aturan Wajib: Auto-update Dokumentasi
 

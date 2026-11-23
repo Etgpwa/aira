@@ -38,7 +38,7 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 ## Alur Scan Soal Academic
 
 1. Dashboard mengirim salinan tiap foto ke endpoint terautentikasi `POST /api/academic/ocr`. Gemini mengembalikan JSON teks soal, nomor asli, rujukan, bacaan bersama, dan koordinat visual. Parser juga menerima daftar soal format lama atau respons yang tidak menyertakan bagian opsional.
-   Browser membatasi permintaan OCR per foto dan menampilkan pesan sesuai jenis kegagalannya. Foto lain yang berhasil diproses tetap masuk ke pratinjau.
+   Browser membatasi permintaan OCR per foto dan menampilkan jenis kegagalan serta jumlah key yang dicoba. Endpoint mencoba daftar key pada model utama sebelum beralih ke model cadangan, sesuai tenggat masing-masing. Foto lain yang berhasil diproses tetap masuk ke pratinjau.
 2. Browser memotong visual dari foto asli dan mengompres tiap potongan ke WebP (maksimal sekitar 72 KiB). Selama pratinjau terbuka, hasil dari semua foto digabung untuk menelusuri rantai rujukan berdasarkan nomor atau nama kasus, menyertakan bacaan bersama, dan memasangkan gambar solusi dari halaman pembahasan berdasarkan nomor soal tercetak. Rujukan yang hilang atau ambigu ditandai di pratinjau.
 3. Saat disimpan, konteks ditempel ke teks soal dan potongan disimpan di kolom `course_quiz_questions.ocr_images`. Bank soal dan CBT menampilkan visual sesuai letaknya. Gambar solusi tersedia di pembahasan. Soal bergambar tetap memakai versi asli di Challenge dan bank soal kuis teks WhatsApp menyaringnya.
 

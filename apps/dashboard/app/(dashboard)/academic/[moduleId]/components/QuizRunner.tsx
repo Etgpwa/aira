@@ -20,7 +20,9 @@ import {
     ChevronRight,
     Save
 } from 'lucide-react';
-import { completeModule, batchParaphraseQuestions, saveQuestionNote } from '../../actions';
+import { completeModule, saveQuestionNote } from '../../actions';
+import QuizImages, { hasQuizImage } from '../../components/QuizImages';
+import { paraphraseTextQuestions } from '../../components/paraphrase-quiz';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -69,7 +71,7 @@ export default function QuizRunner({
     // Jumlah soal yang gagal diparafrase (hanya relevan di Mode Challenge)
     const failedParaphraseCount =
         currentMode === 'challenge' && hasParaphrased
-            ? simQuestions.filter((q) => !q.is_paraphrased).length
+            ? simQuestions.filter((q) => !q.is_paraphrased && !q.ocr_images?.length).length
             : 0;
 
     // CBT Navigation & Answer State
@@ -131,7 +133,7 @@ export default function QuizRunner({
     const generateChallengeQuestions = async (basePool: any[]) => {
         setIsParaphrasing(true);
         try {
-            const { questions: paraphrased } = await batchParaphraseQuestions(basePool);
+            const paraphrased = await paraphraseTextQuestions(basePool);
             setSimQuestions(paraphrased);
             setHasParaphrased(true);
             setCurrentIndex(0);
@@ -151,13 +153,13 @@ export default function QuizRunner({
     // Coba ulang parafrase hanya untuk soal yang gagal (jawaban yang sudah diisi dipertahankan)
     const retryFailedParaphrase = async () => {
         const failedIdx = simQuestions
-            .map((q, i) => (q.is_paraphrased ? -1 : i))
+            .map((q, i) => (q.is_paraphrased || q.ocr_images?.length ? -1 : i))
             .filter((i) => i >= 0);
         if (failedIdx.length === 0) return;
 
         setIsRetrying(true);
         try {
-            const { questions: retried } = await batchParaphraseQuestions(
+            const retried = await paraphraseTextQuestions(
                 failedIdx.map((i) => simQuestions[i])
             );
             setSimQuestions((prev) => {
@@ -456,11 +458,13 @@ export default function QuizRunner({
                     <p className="text-sm sm:text-base font-semibold text-on-surface leading-relaxed whitespace-pre-line">
                         {currentQ.question_text}
                     </p>
+                    <QuizImages images={currentQ.ocr_images} field="question_text" />
 
                     <div className="flex flex-col gap-2">
                         {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
-                            const optText = currentQ[`option_${optKey.toLowerCase()}`];
-                            if (!optText) return null;
+                            const field = `option_${optKey.toLowerCase() as 'a' | 'b' | 'c' | 'd'}` as const;
+                            const optText = currentQ[field];
+                            if (!optText && !hasQuizImage(currentQ.ocr_images, field)) return null;
 
                             const isKunci = optKey === currentQ.correct_answer;
                             const isUserChoice = optKey === userAnswer;
@@ -482,7 +486,10 @@ export default function QuizRunner({
                             return (
                                 <div key={optKey} className={optClass}>
                                     <div className={badgeClass}>{optKey}</div>
-                                    <span className="flex-1 leading-snug">{optText}</span>
+                                    <span className="flex-1 min-w-0 leading-snug whitespace-pre-line">
+                                        {optText}
+                                        <QuizImages images={currentQ.ocr_images} field={field} />
+                                    </span>
                                     {isKunci && (
                                         <span className="text-[10px] bg-mint-fg text-white font-extrabold px-2 py-0.5 rounded-full shrink-0">
                                             Kunci Benar
@@ -497,6 +504,7 @@ export default function QuizRunner({
                             );
                         })}
                     </div>
+                    <QuizImages images={currentQ.ocr_images} field="correct_answer" />
 
                     {/* Fitur Catatan / Komentar Pengerjaan (Tersimpan ke Database) */}
                     <div className="mt-2 pt-3 border-t border-surface-variant flex flex-col gap-2">
@@ -702,12 +710,14 @@ export default function QuizRunner({
                 <p className="text-sm sm:text-base font-semibold text-on-surface leading-relaxed whitespace-pre-line">
                     {currentQ.question_text}
                 </p>
+                <QuizImages images={currentQ.ocr_images} field="question_text" />
 
                 {/* Daftar Pilihan Opsi A, B, C, D */}
                 <div className="flex flex-col gap-2">
                     {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
-                        const optText = currentQ[`option_${optKey.toLowerCase()}`];
-                        if (!optText) return null;
+                        const field = `option_${optKey.toLowerCase() as 'a' | 'b' | 'c' | 'd'}` as const;
+                        const optText = currentQ[field];
+                        if (!optText && !hasQuizImage(currentQ.ocr_images, field)) return null;
 
                         const isSelected = userAnswers[currentIndex] === optKey;
 
@@ -731,7 +741,10 @@ export default function QuizRunner({
                                 >
                                     {optKey}
                                 </div>
-                                <span className="flex-1 leading-snug">{optText}</span>
+                                <span className="flex-1 min-w-0 leading-snug whitespace-pre-line">
+                                    {optText}
+                                    <QuizImages images={currentQ.ocr_images} field={field} />
+                                </span>
                                 {isSelected && (
                                     <Check className="w-4 h-4 text-primary shrink-0 font-bold" />
                                 )}

@@ -26,6 +26,12 @@ Semua tabel memiliki kolom `user_id` yang berelasi langsung dengan tabel `auth.u
 18. **`habit_logs`**: Catatan kebiasaan harian (bangun, tidur, mulai kerja, dll) beserta timestamp kejadian. Memiliki kolom `custom_label` untuk tipe `TIME_SINK` dan `duration_minutes`. RLS diaktifkan.
 19. **`habit_targets`**: Target kebiasaan (misal: target bangun jam 05:30, target olahraga 30 menit). Digunakan untuk perbandingan dengan `habit_logs`. RLS diaktifkan.
 
+## Gambar OCR Academic
+
+`course_quiz_questions.ocr_images` menyimpan array JSONB berisi posisi gambar (`field`), WebP dalam Base64 (`data`), dan label rujukan opsional (`label`). Default array kosong menjaga kompatibilitas soal lama. Gambar mengikuti RLS baris soal dan ikut terhapus saat soalnya dihapus.
+
+Untuk proyek Supabase yang sudah berjalan, jalankan [migrasi `add_ocr_images_to_quiz_questions.sql`](supabase/add_ocr_images_to_quiz_questions.sql) lewat SQL Editor, lalu lakukan *re-dump* skema. Penyimpanan menggunakan tabel yang sama tanpa bucket Supabase Storage.
+
 ## Row Level Security (RLS)
 
 Keamanan data terjamin ketat menggunakan mekanisme RLS PostgreSQL.

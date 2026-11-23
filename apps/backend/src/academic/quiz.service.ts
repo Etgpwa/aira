@@ -28,6 +28,7 @@ Kembalikan HANYA array JSON ini (tanpa markdown backtick, tanpa penjelasan apapu
 }]
 
 PENTING:
+- Jika soal merujuk pada soal lain, kasus, atau bacaan bersama yang terlihat dalam foto, salin fakta dan konteks yang diperlukan ke dalam "question_text" agar soal bisa dikerjakan sendiri. Pertahankan nomor asli pada label rujukan. Bila sumber tidak terlihat, pertahankan teks rujukannya tanpa mengarang isi.
 - Untuk "question_type", gunakan "MCQ" jika ada pilihan ganda, dan "ESSAY" jika tidak ada pilihan ganda.
 - Jika "question_type" adalah "ESSAY", maka option_a sampai option_d diisi null.
 - Jika tidak ada soal sama sekali, kembalikan: []`;
@@ -86,7 +87,7 @@ export class QuizService {
      * 2. Ambil N Soal Kuis (HANYA MCQ, yang belum pernah ditanya)
      */
     async getQuizQuestions(userId: string, subject: string, count = 5): Promise<any[]> {
-        const { data, error } = await supabase
+        const query = () => supabase
             .from('course_quiz_questions')
             .select('*')
             .eq('user_id', userId)
@@ -94,9 +95,9 @@ export class QuizService {
             .eq('question_type', 'MCQ')
             .eq('already_asked', false)
             .limit(count);
-            // Idealnya kita lakukan shuffle/random. Karena API supabase JS tidak punya .random() bawaan
-            // tanpa membuat rpc custom, kita ambil beberapa lalu shuffle di memory (jika datanya kecil).
-            // Tapi untuk saat ini kita limit langsung via DB.
+        // Kuis WhatsApp berupa teks. Soal dengan visual tetap bisa dikerjakan di dashboard.
+        let { data, error } = await query().eq('ocr_images', '[]');
+        if (error?.code === '42703') ({ data, error } = await query());
 
         if (error) {
             console.error(error);

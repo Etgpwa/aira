@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { Trash2, Wand2, Sparkles, ChevronDown, ChevronUp, Loader2, Check, Edit3, X } from 'lucide-react';
 import { deleteQuestion, paraphraseQuestion, generateDistractors, updateQuestion } from '../../actions';
 import { useRouter } from 'next/navigation';
+import QuizImages, { hasQuizImage } from '../../components/QuizImages';
 
 interface QuestionListProps {
     questions: any[];
@@ -146,27 +147,33 @@ function QuestionCard({ question, index, moduleId }: { question: any; index: num
                     ) : (
                         // ── View Mode ─────────────────────────────
                         <div>
-                            <p className="text-sm text-on-surface mb-2">{question.question_text}</p>
+                            <p className="text-sm text-on-surface mb-2 whitespace-pre-line">{question.question_text}</p>
+                            <QuizImages images={question.ocr_images} field="question_text" />
                             {question.question_type === 'MCQ' && (
                                 <div className="flex flex-col gap-1 mb-3">
-                                    {['a', 'b', 'c', 'd'].map(opt => {
-                                        const val = question[`option_${opt}`];
-                                        if (!val) return null;
+                                    {(['a', 'b', 'c', 'd'] as const).map(opt => {
+                                        const field = `option_${opt}` as const;
+                                        const val = question[field];
+                                        if (!val && !hasQuizImage(question.ocr_images, field)) return null;
                                         const isCorrect = question.correct_answer === opt.toUpperCase();
                                         return (
                                             <div key={opt} className={`flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-xs ${isCorrect ? 'bg-mint-bg/30 text-mint-fg font-bold' : 'text-secondary'}`}>
                                                 <span className="font-bold uppercase">{opt}.</span>
-                                                <span>{val}</span>
+                                                <span className="min-w-0 whitespace-pre-line">
+                                                    {val}
+                                                    <QuizImages images={question.ocr_images} field={field} />
+                                                </span>
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
-                            {question.question_type === 'ESSAY' && (
+                            {question.question_type === 'ESSAY' && (question.correct_answer !== '?' || !hasQuizImage(question.ocr_images, 'correct_answer')) && (
                                 <div className="bg-mint-bg/20 rounded-lg px-2.5 py-1.5 text-xs text-mint-fg font-medium mb-3">
                                     Jawaban: {question.correct_answer}
                                 </div>
                             )}
+                            <QuizImages images={question.ocr_images} field="correct_answer" />
 
                             {/* Status / Feedback */}
                             {(isPending || actionStatus) && (
@@ -183,14 +190,16 @@ function QuestionCard({ question, index, moduleId }: { question: any; index: num
                                 >
                                     <Edit3 className="w-3 h-3" /> Edit
                                 </button>
-                                <button
-                                    onClick={handleParaphrase}
-                                    disabled={isPending}
-                                    className="flex items-center gap-1 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-bold"
-                                >
-                                    <Wand2 className="w-3 h-3" /> Parafrase
-                                </button>
-                                {question.question_type === 'ESSAY' && (
+                                {!question.ocr_images?.length && (
+                                    <button
+                                        onClick={handleParaphrase}
+                                        disabled={isPending}
+                                        className="flex items-center gap-1 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-bold"
+                                    >
+                                        <Wand2 className="w-3 h-3" /> Parafrase
+                                    </button>
+                                )}
+                                {question.question_type === 'ESSAY' && !question.ocr_images?.length && (
                                     <button
                                         onClick={handleGenerateDistractors}
                                         disabled={isPending}

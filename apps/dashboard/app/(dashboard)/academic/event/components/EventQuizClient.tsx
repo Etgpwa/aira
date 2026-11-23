@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import QuizRunner from '../../[moduleId]/components/QuizRunner';
-import { getEventQuestions, batchParaphraseQuestions } from '../../actions';
+import { getEventQuestions } from '../../actions';
+import { paraphraseTextQuestions } from '../../components/paraphrase-quiz';
 
 interface ModuleItem {
     id: string;
@@ -83,7 +84,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
             if (chosenMode === 'challenge') {
                 setLoadingStep(`Memparafrase ${rawQuestions.length} butir soal dengan Gemini AI...`);
-                const { questions: paraphrased } = await batchParaphraseQuestions(rawQuestions);
+                const paraphrased = await paraphraseTextQuestions(rawQuestions);
                 setActiveExamQuestions(paraphrased);
             } else {
                 setActiveExamQuestions(rawQuestions);

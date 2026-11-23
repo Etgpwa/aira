@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useTransition, useRef } from 'react';
+import { useMemo, useState, useTransition, useRef } from 'react';
 import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp, FolderOpen, Image as ImageIcon } from 'lucide-react';
 import { ocrSoal, ocrKunciJawaban, applyKunciToModule, saveQuestions } from '../../actions';
 import ManualQuizInput from '../../components/ManualQuizInput';
 import { useRouter } from 'next/navigation';
+import QuizImages from '../../components/QuizImages';
+import { QUIZ_FIELDS, resolveOcrQuestions, type ImageRegion, type OcrPassage, type OcrQuestion, type OcrSolution } from '../../quiz-ocr';
+import { cropQuizImages, prepareOcrPhoto } from '../../quiz-ocr-images';
 
 interface OcrUploadPanelProps {
     moduleId: string;
@@ -15,7 +18,17 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     const [activePanel, setActivePanel] = useState<'none' | 'soal' | 'kunci' | 'manual'>('none');
     const [activePickerModal, setActivePickerModal] = useState<'soal' | 'kunci' | null>(null);
     const [isPending, startTransition] = useTransition();
-    const [previewQuestions, setPreviewQuestions] = useState<any[] | null>(null);
+    const [previewQuestions, setPreviewQuestions] = useState<OcrQuestion[]>([]);
+    const [passages, setPassages] = useState<OcrPassage[]>([]);
+    const [solutions, setSolutions] = useState<OcrSolution[]>([]);
+    const [excludedIndices, setExcludedIndices] = useState<number[]>([]);
+    const [isWorking, setIsWorking] = useState(false);
+    const isBusy = isWorking || isPending;
+    const resolved = useMemo(() => resolveOcrQuestions(previewQuestions, passages, solutions), [previewQuestions, passages, solutions]);
+    const included = previewQuestions.map((question, index) => ({ question, index }))
+        .filter(({ index }) => !excludedIndices.includes(index));
+    const unmatchedSolutionNumbers = Array.from(new Set(solutions.map(solution => solution.source_number)))
+        .filter(number => !previewQuestions.some(question => question.source_number === number));
     const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
     const [status, setStatus] = useState<string>('');
     const router = useRouter();
@@ -82,36 +95,59 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
 
     const handleScanSoal = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
-        if (files.length === 0) return;
-
-        startTransition(async () => {
-            const allExtracted: any[] = [];
-            let errorCount = 0;
-
+        e.target.value = '';
+        if (!files.length || isBusy) return;
+        setIsWorking(true);
+        const allExtracted: OcrQuestion[] = [];
+        const allPassages: OcrPassage[] = [];
+        const allSolutions: OcrSolution[] = [];
+        let errorCount = 0;
+        try {
             for (let i = 0; i < files.length; i++) {
-                const currentFile = files[i];
-                setStatus(`Menganalisis foto ${i + 1} dari ${files.length} (${currentFile.name.slice(0, 15)}...)...`);
+                const photoUrl = URL.createObjectURL(files[i]);
+                setStatus(`Menganalisis foto ${i + 1} dari ${files.length}…`);
                 try {
-                    const { base64, mimeType } = await handleFileToBase64(currentFile);
-                    const result = await ocrSoal(base64, mimeType, subjectName);
-                    if (Array.isArray(result) && result.length > 0) {
-                        allExtracted.push(...result);
-                    }
-                } catch (err: any) {
+                    const photo = new Image();
+                    photo.src = photoUrl;
+                    const decoded = await photo.decode().then(() => true, () => false);
+                    const { base64, mimeType } = decoded
+                        ? prepareOcrPhoto(photo)
+                        : await handleFileToBase64(files[i]);
+                    const page = await ocrSoal(base64, mimeType, subjectName);
+                    const extractImages = (regions: ImageRegion[]) => decoded
+                        ? cropQuizImages(photo, regions)
+                        : { ocr_images: [], failed_crops: regions.length };
+                    allExtracted.push(...page.questions.map(({ regions, ...question }) => ({
+                        ...question, ...extractImages(regions),
+                    })));
+                    allPassages.push(...page.passages.map(({ regions, ...passage }) => ({
+                        ...passage, ...extractImages(regions),
+                    })));
+                    allSolutions.push(...page.solutions.map(({ regions, ...solution }) => ({
+                        ...solution, ...extractImages(regions),
+                    })));
+                } catch (err) {
                     console.error(`Gagal scan foto ke-${i + 1}:`, err);
                     errorCount++;
+                } finally {
+                    URL.revokeObjectURL(photoUrl);
                 }
             }
 
-            if (allExtracted.length > 0) {
-                setPreviewQuestions(prev => [...(prev || []), ...allExtracted]);
-                const errNote = errorCount > 0 ? ` (${errorCount} foto gagal diproses)` : '';
-                setStatus(`Selesai! Ditemukan total ${allExtracted.length} soal dari ${files.length} gambar.${errNote} Periksa & simpan di bawah.`);
+            if (allExtracted.length || allPassages.length || allSolutions.length) {
+                setPreviewQuestions(prev => [...prev, ...allExtracted]);
+                setPassages(prev => [...prev, ...allPassages]);
+                setSolutions(prev => [...prev, ...allSolutions]);
+                const errNote = errorCount ? ` ${errorCount} foto gagal diproses.` : '';
+                setStatus(allExtracted.length
+                    ? `Ditemukan ${allExtracted.length} soal.${errNote} Periksa konteks dan gambar sebelum menyimpan.`
+                    : `Bacaan atau solusi sudah ditambahkan.${errNote} Pastikan halaman yang berisi soalnya ikut dipindai.`);
             } else {
                 setStatus(errorCount > 0 ? 'Gagal memproses gambar. Pastikan gambar jelas dan coba lagi.' : 'Tidak ada soal yang terdeteksi pada gambar.');
             }
-        });
-        e.target.value = '';
+        } finally {
+            setIsWorking(false);
+        }
     };
 
     const handleScanKunci = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,26 +194,73 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
         });
     };
 
-    const handleSavePreview = () => {
-        if (!previewQuestions || previewQuestions.length === 0) return;
-        startTransition(async () => {
-            await saveQuestions(previewQuestions, moduleId);
-            setPreviewQuestions(null);
-            setStatus('Soal berhasil disimpan!');
-            router.refresh();
+    const resetPreview = () => {
+        setPreviewQuestions([]);
+        setPassages([]);
+        setSolutions([]);
+        setExcludedIndices([]);
+        setStatus('');
+    };
+
+    const handleSavePreview = async () => {
+        if (!included.length || isBusy) return;
+        const drafts = included.map(({ question, index }) => {
+            const { context, images } = resolved[index];
+            return {
+                id: question.draft_id,
+                question_text: [context, question.question_text].filter(Boolean).join('\n\n'),
+                question_type: question.question_type,
+                option_a: question.option_a,
+                option_b: question.option_b,
+                option_c: question.option_c,
+                option_d: question.option_d,
+                correct_answer: question.correct_answer,
+                subject_name: question.subject_name,
+                ocr_images: images,
+            };
         });
+        const requestLimit = 3_500_000;
+        const sizes = drafts.map(draft => new Blob([JSON.stringify(draft)]).size + 1);
+        if (sizes.some(size => size > requestLimit)) {
+            setStatus('Gagal menyimpan karena satu soal memuat terlalu banyak gambar. Keluarkan soal itu dari daftar simpan.');
+            return;
+        }
+        setIsWorking(true);
+        let saved = 0;
+        try {
+            while (saved < drafts.length) {
+                let end = saved;
+                let size = 0;
+                while (end < drafts.length && size + sizes[end] <= requestLimit) size += sizes[end++];
+                setStatus(`Menyimpan soal ${saved + 1}–${end} dari ${drafts.length}…`);
+                const result = await saveQuestions(drafts.slice(saved, end), moduleId);
+                if (result.error) {
+                    setStatus(`${result.error}${saved ? ` ${saved} soal sudah tersimpan.` : ''}`);
+                    return;
+                }
+                const savedIndices = included.slice(saved, end).map(({ index }) => index);
+                setExcludedIndices(prev => [...prev, ...savedIndices]);
+                saved = end;
+            }
+            resetPreview();
+            setStatus('Soal berhasil disimpan.');
+        } catch (error) {
+            console.error('Gagal menyimpan hasil OCR:', error);
+            setStatus(`Gagal menyimpan soal. ${saved ? `${saved} soal sudah tersimpan. ` : ''}Coba lagi.`);
+        } finally {
+            if (saved) router.refresh();
+            setIsWorking(false);
+        }
     };
 
     const updatePreviewQ = (idx: number, field: string, value: string) => {
-        if (!previewQuestions) return;
         const updated = [...previewQuestions];
         updated[idx] = { ...updated[idx], [field]: value };
         setPreviewQuestions(updated);
     };
 
     const removePreviewQ = (idx: number) => {
-        if (!previewQuestions) return;
-        setPreviewQuestions(previewQuestions.filter((_, i) => i !== idx));
+        setExcludedIndices(prev => [...prev, idx]);
     };
 
     return (
@@ -225,6 +308,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             <div className="grid grid-cols-3 gap-2">
                 {/* Scan Soal Button */}
                 <button
+                    disabled={isBusy}
                     onClick={() => setActivePickerModal('soal')}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 transition-all active:scale-95 ${activePickerModal === 'soal' ? 'border-primary bg-primary/10' : 'border-surface-variant bg-surface-bright'}`}
                 >
@@ -234,6 +318,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
 
                 {/* Scan Kunci Button */}
                 <button
+                    disabled={isBusy}
                     onClick={() => setActivePickerModal('kunci')}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-[14px] border-2 transition-all active:scale-95 ${activePickerModal === 'kunci' ? 'border-amber-400 bg-amber-50' : 'border-surface-variant bg-surface-bright'}`}
                 >
@@ -275,7 +360,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                         </div>
                         <p className="text-xs text-secondary leading-relaxed">
                             {activePickerModal === 'soal'
-                                ? 'Ambil foto langsung halaman modul/buku atau buka folder galeri untuk memilih screenshot digital.'
+                                ? 'Pilih foto halaman soal. Jika ada rujukan, scan juga halaman sumbernya sebelum menyimpan.'
                                 : 'Ambil foto lembar kunci jawaban atau pilih gambar screenshot dari galeri.'}
                         </p>
                         <div className="grid grid-cols-1 gap-2.5">
@@ -328,16 +413,15 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             )}
 
             {/* Status message */}
-            {(isPending || status) && (
-                <div className={`rounded-[12px] px-4 py-2.5 text-sm font-medium flex items-center gap-2 ${isPending ? 'bg-primary/10 text-primary' : status.includes('Gagal') ? 'bg-red-50 text-red-600' : 'bg-mint-bg/20 text-mint-fg'}`}>
-                    {isPending && <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />}
-                    {!isPending && <Check className="w-4 h-4 flex-shrink-0" />}
-                    {isPending ? 'Memproses...' : status}
+            {(isBusy || status) && (
+                <div role="status" className={`rounded-[12px] px-4 py-2.5 text-sm font-medium flex items-center gap-2 ${isBusy ? 'bg-primary/10 text-primary' : status.includes('Gagal') ? 'bg-red-50 text-red-600' : 'bg-mint-bg/20 text-mint-fg'}`}>
+                    {isBusy ? <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" /> : <Check className="w-4 h-4 flex-shrink-0" />}
+                    {status || 'Memproses…'}
                 </div>
             )}
 
             {/* Kunci Jawaban Preview */}
-            {kunciResult && Object.keys(kunciResult).length > 0 && !isPending && (
+            {kunciResult && Object.keys(kunciResult).length > 0 && !isBusy && (
                 <div className="bg-amber-50 border border-amber-200 rounded-[16px] p-4">
                     <p className="font-bold text-amber-700 mb-2">Preview Kunci Jawaban</p>
                     <div className="grid grid-cols-5 gap-1.5 mb-4">
@@ -356,26 +440,32 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             )}
 
             {/* Preview OCR Soal */}
-            {previewQuestions && previewQuestions.length > 0 && !isPending && (
+            {(previewQuestions.length > 0 || passages.length > 0 || solutions.length > 0) && !isBusy && (
                 <div className="bg-surface-bright border border-surface-variant rounded-[16px] p-4">
                     <div className="flex justify-between items-center mb-3">
-                        <p className="font-bold text-on-surface">Preview {previewQuestions.length} Soal</p>
+                        <p className="font-bold text-on-surface">Preview {included.length} Soal</p>
                         <span className="text-xs text-secondary">Periksa & edit sebelum simpan</span>
                     </div>
+                    {unmatchedSolutionNumbers.length > 0 && (
+                        <p className="mb-2 text-xs font-medium text-amber-700">
+                            Scan soal asli nomor {unmatchedSolutionNumbers.join(', ')} agar gambar solusinya bisa dipasangkan.
+                        </p>
+                    )}
                     <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto">
-                        {previewQuestions.map((q, idx) => (
+                        {included.map(({ question, index }) => (
                             <PreviewQuestionCard
-                                key={idx}
-                                question={q}
-                                index={idx}
-                                onChange={(field, val) => updatePreviewQ(idx, field, val)}
-                                onRemove={() => removePreviewQ(idx)}
+                                key={index}
+                                question={question}
+                                resolved={resolved[index]}
+                                index={index}
+                                onChange={(field, val) => updatePreviewQ(index, field, val)}
+                                onRemove={() => removePreviewQ(index)}
                             />
                         ))}
                     </div>
                     <div className="flex gap-2 mt-4">
-                        <button onClick={() => setPreviewQuestions(null)} className="flex-1 bg-surface-container text-secondary py-2.5 rounded-full font-bold text-sm">Batal</button>
-                        <button onClick={handleSavePreview} className="flex-1 bg-primary text-on-primary py-2.5 rounded-full font-bold text-sm flex items-center justify-center gap-1.5">
+                        <button onClick={resetPreview} className="flex-1 bg-surface-container text-secondary py-2.5 rounded-full font-bold text-sm">Batal</button>
+                        <button onClick={handleSavePreview} disabled={!included.length} className="flex-1 bg-primary text-on-primary py-2.5 rounded-full font-bold text-sm flex items-center justify-center gap-1.5 disabled:opacity-50">
                             <Check className="w-4 h-4" /> Simpan Semua
                         </button>
                     </div>
@@ -391,8 +481,9 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
 }
 
 // ─── Sub-komponen: Preview card per soal ────────────────────────
-function PreviewQuestionCard({ question, index, onChange, onRemove }: {
-    question: any;
+function PreviewQuestionCard({ question, resolved, index, onChange, onRemove }: {
+    question: OcrQuestion;
+    resolved: ReturnType<typeof resolveOcrQuestions>[number];
     index: number;
     onChange: (field: string, val: string) => void;
     onRemove: () => void;
@@ -403,17 +494,21 @@ function PreviewQuestionCard({ question, index, onChange, onRemove }: {
         <div className="bg-surface border border-surface-variant rounded-[12px] p-3">
             <div className="flex justify-between items-start gap-2">
                 <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 text-left flex-1 min-w-0">
-                    <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full flex-shrink-0">#{index + 1}</span>
+                    <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full flex-shrink-0">#{question.source_number ?? index + 1}</span>
                     <span className="text-sm font-medium text-on-surface truncate">{question.question_text}</span>
                     {expanded ? <ChevronUp className="w-4 h-4 text-secondary flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-secondary flex-shrink-0" />}
                 </button>
-                <button onClick={onRemove} className="w-6 h-6 rounded-full bg-red-50 text-red-400 flex items-center justify-center flex-shrink-0">
+                <button onClick={onRemove} aria-label="Keluarkan soal dari daftar simpan" className="w-6 h-6 rounded-full bg-red-50 text-red-400 flex items-center justify-center flex-shrink-0">
                     <X className="w-3.5 h-3.5" />
                 </button>
             </div>
 
             {expanded && (
                 <div className="mt-3 flex flex-col gap-2">
+                    {resolved.issues.map(issue => <p key={issue} className="text-xs font-medium text-amber-700">{issue}</p>)}
+                    {resolved.context && (
+                        <p className="whitespace-pre-wrap rounded-lg bg-surface-container p-2 text-xs text-on-surface">{resolved.context}</p>
+                    )}
                     <textarea
                         className="w-full bg-surface-container border border-surface-variant rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none resize-none"
                         rows={2}
@@ -421,16 +516,19 @@ function PreviewQuestionCard({ question, index, onChange, onRemove }: {
                         onChange={e => onChange('question_text', e.target.value)}
                         placeholder="Teks soal..."
                     />
+                    <QuizImages images={resolved.images} field="question_text" />
                     {question.question_type === 'MCQ' && (
                         <div className="grid grid-cols-2 gap-1.5">
-                            {['a', 'b', 'c', 'd'].map(opt => (
-                                <input
-                                    key={opt}
-                                    className="w-full bg-surface-container border border-surface-variant rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none"
-                                    value={question[`option_${opt}`] || ''}
-                                    onChange={e => onChange(`option_${opt}`, e.target.value)}
-                                    placeholder={`Opsi ${opt.toUpperCase()}`}
-                                />
+                            {QUIZ_FIELDS.slice(1, 5).map((field, optionIndex) => (
+                                <div key={field}>
+                                    <input
+                                        className="w-full bg-surface-container border border-surface-variant rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none"
+                                        value={question[field] || ''}
+                                        onChange={e => onChange(field, e.target.value)}
+                                        placeholder={`Opsi ${'ABCD'[optionIndex]}`}
+                                    />
+                                    <QuizImages images={resolved.images} field={field} />
+                                </div>
                             ))}
                         </div>
                     )}
@@ -443,6 +541,7 @@ function PreviewQuestionCard({ question, index, onChange, onRemove }: {
                         />
                         <span className="text-[10px] text-secondary">(A/B/C/D atau teks untuk essay)</span>
                     </div>
+                    <QuizImages images={resolved.images} field="correct_answer" />
                 </div>
             )}
         </div>

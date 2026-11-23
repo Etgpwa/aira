@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS course_quiz_questions (
   question_type VARCHAR DEFAULT 'MCQ' NOT NULL,
   already_asked BOOLEAN DEFAULT FALSE NOT NULL,
   user_note TEXT,
+  ocr_images JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(ocr_images) = 'array'),
   last_asked_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );

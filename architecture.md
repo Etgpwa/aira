@@ -35,6 +35,12 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
   - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
   - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
 
+## Alur Scan Soal Academic
+
+1. Dashboard mengirim salinan tiap foto ke Gemini Vision. Respons memisahkan teks soal, nomor asli, rujukan, bacaan bersama, dan koordinat visual sesuai letaknya pada soal, opsi, atau solusi.
+2. Browser memotong visual dari foto asli dan mengompres tiap potongan ke WebP (maksimal sekitar 72 KiB). Selama pratinjau terbuka, hasil dari semua foto digabung untuk menelusuri rantai rujukan berdasarkan nomor atau nama kasus, menyertakan bacaan bersama, dan memasangkan gambar solusi dari halaman pembahasan berdasarkan nomor soal tercetak. Rujukan yang hilang atau ambigu ditandai di pratinjau.
+3. Saat disimpan, konteks ditempel ke teks soal dan potongan disimpan di kolom `course_quiz_questions.ocr_images`. Bank soal dan CBT menampilkan visual sesuai letaknya. Gambar solusi tersedia di pembahasan. Soal bergambar tetap memakai versi asli di Challenge dan bank soal kuis teks WhatsApp menyaringnya.
+
 ## Alur Challenge Mode (Kuis Kuliah)
 1. `QuizRunner.tsx` mengambil sampel soal MCQ asli; bila mode awal `challenge` (via `?mode=challenge`) atau user menekan tab Challenge, server action `batchParaphraseQuestions` dipanggil (chunk 10 soal ke Gemini).
 2. Tiap hasil divalidasi (kalimat harus berbeda dari asli, opsi lengkap), di-retry 1x bila gagal, lalu posisi opsi diacak dan `correct_answer` dipetakan ulang. Soal gagal tetap tampil asli dengan `is_paraphrased: false`.

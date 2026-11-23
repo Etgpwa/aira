@@ -49,6 +49,113 @@ export type OcrPage = {
     solutions: (Omit<OcrSolution, 'ocr_images' | 'failed_crops'> & { regions: ImageRegion[] })[];
 };
 
+export const MAX_OCR_PHOTO_BASE64 = 3_500_000;
+export const OCR_CLIENT_TIMEOUT_MS = 36_000;
+
+export type AcademicOcrResults = {
+    questions: OcrPage;
+    answer_key: Record<number, string>;
+};
+
+function readOcrJson(raw: string): unknown {
+    try {
+        return JSON.parse(raw);
+    } catch {
+        // Beberapa respons menyertakan pagar Markdown atau teks pengantar.
+    }
+    const text = (raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw).trim();
+    const start = text.search(/[\[{]/);
+    const end = text.lastIndexOf(text[start] === '[' ? ']' : '}');
+    if (start === -1 || end <= start) throw new SyntaxError('Respons OCR tidak berisi JSON');
+    return JSON.parse(text.slice(start, end + 1));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+const readText = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+const readCaseName = (value: unknown) => readText(value).slice(0, 80);
+const isQuestionNumber = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+function readRegions(value: unknown): ImageRegion[] {
+    return Array.isArray(value)
+        ? value.filter(region => region && QUIZ_FIELDS.includes(region.field))
+        : [];
+}
+
+export function parseOcrPage(raw: string, subjectName: string, createId: () => string): OcrPage {
+    const parsed = readOcrJson(raw);
+    const page = asRecord(parsed);
+    const questions = Array.isArray(parsed) ? parsed : page?.questions;
+    const passages = page?.passages;
+    const solutions = page?.solutions;
+    if (![questions, passages, solutions].some(Array.isArray)) {
+        throw new SyntaxError('Respons OCR tidak berisi daftar soal, bacaan, atau solusi');
+    }
+
+    return {
+        questions: (Array.isArray(questions) ? questions : []).flatMap((value: unknown) => {
+            const q = asRecord(value);
+            if (!q) return [];
+            const questionText = readText(q.question_text);
+            const regions = readRegions(q.regions);
+            if (!questionText && !regions.some(region => region.field === 'question_text')) return [];
+            return [{
+                draft_id: createId(),
+                question_text: questionText,
+                question_type: q.question_type === 'MCQ' ? 'MCQ' : 'ESSAY',
+                option_a: readText(q.option_a) || null,
+                option_b: readText(q.option_b) || null,
+                option_c: readText(q.option_c) || null,
+                option_d: readText(q.option_d) || null,
+                correct_answer: readText(q.correct_answer) || '?',
+                source_number: isQuestionNumber(q.source_number) ? q.source_number : null,
+                reference_numbers: Array.isArray(q.reference_numbers) ? q.reference_numbers.filter(isQuestionNumber) : [],
+                references_previous: q.references_previous === true,
+                case_name: readCaseName(q.case_name) || undefined,
+                referenced_cases: Array.isArray(q.referenced_cases) ? q.referenced_cases.map(readCaseName).filter(Boolean) : [],
+                regions,
+                subject_name: subjectName,
+            }];
+        }),
+        passages: (Array.isArray(passages) ? passages : []).flatMap((value: unknown) => {
+            const passage = asRecord(value);
+            if (!passage) return [];
+            const first = passage.first_number;
+            const last = passage.last_number;
+            const hasRange = isQuestionNumber(first) && isQuestionNumber(last) && first <= last;
+            const caseName = readCaseName(passage.case_name);
+            if (!hasRange && !caseName) return [];
+            return [{
+                first_number: hasRange ? first : null,
+                last_number: hasRange ? last : null,
+                case_name: caseName || undefined,
+                text: readText(passage.text),
+                regions: readRegions(passage.regions).filter(region => region.field === 'question_text'),
+            }];
+        }),
+        solutions: (Array.isArray(solutions) ? solutions : []).flatMap((value: unknown) => {
+            const solution = asRecord(value);
+            if (!solution || !isQuestionNumber(solution.source_number)) return [];
+            const regions = readRegions(solution.regions).filter(region => region.field === 'correct_answer');
+            return regions.length ? [{ source_number: solution.source_number, regions }] : [];
+        }),
+    };
+}
+
+export function parseOcrAnswerKey(raw: string): Record<number, string> {
+    const parsed = asRecord(readOcrJson(raw));
+    if (!parsed) throw new SyntaxError('Respons kunci jawaban bukan objek JSON');
+    return Object.fromEntries(Object.entries(parsed).flatMap(([number, value]) => {
+        const answer = readText(value).toUpperCase();
+        return /^[1-9]\d*$/.test(number) && /^[A-E]$/.test(answer) ? [[number, answer]] : [];
+    }));
+}
+
 export function resolveOcrQuestions(questions: OcrQuestion[], passages: OcrPassage[], solutions: OcrSolution[] = []) {
     const caseKey = (name?: string) => name?.normalize('NFKC').toLowerCase().replace(/[\s.,()'"’“”:-]+/g, '') ?? '';
     const byNumber = new Map<number, number[]>();

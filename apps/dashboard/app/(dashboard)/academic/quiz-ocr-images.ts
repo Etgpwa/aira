@@ -1,8 +1,8 @@
-import { MAX_IMAGE_BASE64, type ImageRegion, type QuizImage } from './quiz-ocr';
+import { MAX_IMAGE_BASE64, MAX_OCR_PHOTO_BASE64, type ImageRegion, type QuizImage } from './quiz-ocr';
 
-export function prepareOcrPhoto(image: HTMLImageElement) {
+function compressOcrPhoto(image: HTMLImageElement) {
     const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 2400 / Math.max(image.naturalWidth, image.naturalHeight));
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext('2d');
@@ -10,7 +10,46 @@ export function prepareOcrPhoto(image: HTMLImageElement) {
     context.fillStyle = '#fff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return { base64: canvas.toDataURL('image/jpeg', 0.86).split(',')[1], mimeType: 'image/jpeg' };
+    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    if (!base64) throw new Error('Foto tidak dapat dikompresi.');
+    return { base64, mimeType: 'image/jpeg' };
+}
+
+export async function prepareOcrFile(file: File) {
+    const photo = new Image();
+    const url = URL.createObjectURL(file);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        photo.src = url;
+        await Promise.race([
+            photo.decode(),
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Browser terlalu lama membuka foto.')), 8_000);
+            }),
+        ]);
+        return { ...compressOcrPhoto(photo), photo };
+    } catch {
+        // Gemini dapat membaca beberapa format asli yang belum bisa dibuka browser.
+        if (Math.ceil(file.size / 3) * 4 > MAX_OCR_PHOTO_BASE64) {
+            throw new Error('Foto asli terlalu besar untuk diunggah. Gunakan versi JPG atau PNG yang lebih kecil.');
+        }
+        const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            const readTimer = setTimeout(() => reader.abort(), 8_000);
+            reader.onloadend = () => clearTimeout(readTimer);
+            reader.onload = () => {
+                const data = typeof reader.result === 'string' ? reader.result.split(',')[1] : '';
+                if (data) resolve(data);
+                else reject(new Error('File foto kosong.'));
+            };
+            reader.onerror = reader.onabort = () => reject(new Error('Browser gagal membaca file foto.'));
+            reader.readAsDataURL(file);
+        });
+        return { base64, mimeType: file.type || 'image/jpeg', photo: null };
+    } finally {
+        clearTimeout(timer);
+        URL.revokeObjectURL(url);
+    }
 }
 
 export function cropQuizImages(image: HTMLImageElement, regions: ImageRegion[]) {

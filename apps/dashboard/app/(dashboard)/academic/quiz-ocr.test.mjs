@@ -1,6 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveOcrQuestions } from './quiz-ocr.ts';
+import { parseOcrAnswerKey, parseOcrPage, resolveOcrQuestions } from './quiz-ocr.ts';
+
+test('menerima daftar soal format lama dan halaman dengan bagian opsional yang hilang', () => {
+    const raw = '[{"question_text":"Pilih jenis grafik.","question_type":"MCQ","option_a":"Batang"}]';
+    const original = parseOcrPage(`Hasil OCR\n\`\`\`json\n${raw}\n\`\`\`\nSelesai`, 'Statistika', () => 'draft');
+    const current = parseOcrPage(`{"questions":${raw}}`, 'Statistika', () => 'draft');
+    assert.deepEqual(original, current);
+    assert.equal(current.questions[0].question_text, 'Pilih jenis grafik.');
+    assert.deepEqual(current.passages, []);
+    assert.deepEqual(current.solutions, []);
+});
+
+test('menerima halaman khusus pembahasan dan menolak JSON yang terpotong', () => {
+    const page = parseOcrPage(
+        '{"solutions":[{"source_number":5,"regions":[{"field":"correct_answer","box":[10,20,40,50]}]}]}',
+        'Statistika', () => 'draft',
+    );
+    assert.deepEqual(page.questions, []);
+    assert.equal(page.solutions[0].source_number, 5);
+    assert.throws(() => parseOcrPage('{"questions":[{"question_text":', '', () => ''), SyntaxError);
+});
+
+test('mempertahankan pagar kode jika bagian dari teks soal di JSON yang valid', () => {
+    const question_text = 'Jelaskan kode berikut. ```js\nlet a = 1\n```';
+    const page = parseOcrPage(JSON.stringify({ questions: [{ question_text }] }), '', () => 'draft');
+    assert.equal(page.questions[0].question_text, question_text);
+});
+
+test('membaca kunci jawaban dan menolak respons bukan objek', () => {
+    assert.deepEqual(parseOcrAnswerKey('{"1":"a","4":"E","catatan":"abaikan","2":"P"}'), { 1: 'A', 4: 'E' });
+    assert.throws(() => parseOcrAnswerKey('[]'), SyntaxError);
+});
 
 function question(number, extra = {}) {
     return {

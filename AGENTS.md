@@ -36,6 +36,10 @@ Untuk mencegah limit permintaan (Error 429) atau server overload (Error 503) dar
 - Agar bot memiliki memori konteks singkat, `memory.manager.ts` menyimpan riwayat percakapan (*history*) maksimum 4 percakapan terakhir berdasarkan ID Sesi (nomor HP).
 - Memori ini berguna agar Karen mengerti jika pesan terbaru merujuk/merevisi pesan sesaat sebelumnya.
 
+### OCR Academic di Dashboard
+- Scan Soal dan Scan Kunci memakai `gemini-3.8-flash` melalui `/api/academic/ocr`, dengan respons JSON dan tingkat *thinking* rendah. Percobaan ulang memakai `gemini-3.6-flash` bila model utama terkena batas kuota, timeout, atau error 5xx.
+- Endpoint memakai `GEMINI_API_KEYS` atau `GEMINI_API_KEY` yang sudah ada. Key bergantian tiap permintaan. Percobaan pertama dibatasi 14 detik. Satu percobaan ulang memakai key berikutnya jika tersedia dan dapat menggunakan hingga 25 detik dari tenggat total 30 detik. Durasi fungsi di Vercel ditetapkan 35 detik.
+
 ## Aturan Wajib: Auto-update Dokumentasi
 
 Setiap kali kamu selesai fix bug, menambah fitur, atau mengubah 

@@ -2,12 +2,44 @@
 
 import { useMemo, useState, useTransition, useRef } from 'react';
 import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp, FolderOpen, Image as ImageIcon } from 'lucide-react';
-import { ocrSoal, ocrKunciJawaban, applyKunciToModule, saveQuestions } from '../../actions';
+import { applyKunciToModule, saveQuestions } from '../../actions';
 import ManualQuizInput from '../../components/ManualQuizInput';
 import { useRouter } from 'next/navigation';
 import QuizImages from '../../components/QuizImages';
-import { QUIZ_FIELDS, resolveOcrQuestions, type ImageRegion, type OcrPassage, type OcrQuestion, type OcrSolution } from '../../quiz-ocr';
-import { cropQuizImages, prepareOcrPhoto } from '../../quiz-ocr-images';
+import {
+    MAX_OCR_PHOTO_BASE64, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS, resolveOcrQuestions,
+    type AcademicOcrResults, type ImageRegion, type OcrPassage, type OcrQuestion, type OcrSolution,
+} from '../../quiz-ocr';
+import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
+
+async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
+    kind: Kind, base64: string, mimeType: string, subjectName?: string,
+): Promise<AcademicOcrResults[Kind]> {
+    if (base64.length > MAX_OCR_PHOTO_BASE64) {
+        throw new Error('File foto terlalu besar. Pilih versi berukuran lebih kecil.');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OCR_CLIENT_TIMEOUT_MS);
+    const timeoutMessage = 'Server OCR terlalu lama merespons. Ulangi scan foto ini.';
+    try {
+        const response = await fetch('/api/academic/ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind, base64, mimeType, subjectName }),
+            signal: controller.signal,
+        }).catch(() => {
+            throw new Error(controller.signal.aborted ? timeoutMessage : 'Koneksi ke server OCR gagal. Coba lagi.');
+        });
+        const result: { data?: AcademicOcrResults[Kind]; error?: string } | null = await response.json().catch(() => null);
+        if (controller.signal.aborted || (response.status === 504 && !result?.error)) throw new Error(timeoutMessage);
+        if (!response.ok || !result?.data) {
+            throw new Error(result?.error || 'Server OCR tidak bisa memproses permintaan. Coba lagi.');
+        }
+        return result.data;
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 interface OcrUploadPanelProps {
     moduleId: string;
@@ -38,61 +70,6 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     const cameraKunciInputRef = useRef<HTMLInputElement>(null);
     const folderKunciInputRef = useRef<HTMLInputElement>(null);
 
-    /**
-     * Konversi file gambar ke base64 dengan kompresi client-side (maks 1600px, JPEG 0.85)
-     * Menjamin screenshot beresolusi tinggi maupun foto kamera 50MP tidak melebih batas Next.js
-     * serta mempercepat upload ke server.
-     */
-    const handleFileToBase64 = async (file: File): Promise<{ base64: string; mimeType: string }> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    const maxDim = 1600;
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > maxDim || height > maxDim) {
-                        if (width > height) {
-                            height = Math.round((height * maxDim) / width);
-                            width = maxDim;
-                        } else {
-                            width = Math.round((width * maxDim) / height);
-                            height = maxDim;
-                        }
-                    }
-
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-
-                    if (!ctx) {
-                        const rawBase64 = (e.target?.result as string).split(',')[1];
-                        return resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
-                    }
-
-                    // Background putih untuk format transparan (PNG screenshot)
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.fillRect(0, 0, width, height);
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                    const base64 = dataUrl.split(',')[1];
-                    resolve({ base64, mimeType: 'image/jpeg' });
-                };
-                img.onerror = () => {
-                    const rawBase64 = (e.target?.result as string).split(',')[1];
-                    resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
-                };
-                img.src = e.target?.result as string;
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-    };
-
     const handleScanSoal = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         e.target.value = '';
@@ -101,22 +78,23 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
         const allExtracted: OcrQuestion[] = [];
         const allPassages: OcrPassage[] = [];
         const allSolutions: OcrSolution[] = [];
-        let errorCount = 0;
+        const failures: string[] = [];
         try {
-            for (let i = 0; i < files.length; i++) {
-                const photoUrl = URL.createObjectURL(files[i]);
-                setStatus(`Menganalisis foto ${i + 1} dari ${files.length}…`);
+            for (let index = 0; index < files.length; index++) {
                 try {
-                    const photo = new Image();
-                    photo.src = photoUrl;
-                    const decoded = await photo.decode().then(() => true, () => false);
-                    const { base64, mimeType } = decoded
-                        ? prepareOcrPhoto(photo)
-                        : await handleFileToBase64(files[i]);
-                    const page = await ocrSoal(base64, mimeType, subjectName);
-                    const extractImages = (regions: ImageRegion[]) => decoded
-                        ? cropQuizImages(photo, regions)
-                        : { ocr_images: [], failed_crops: regions.length };
+                    setStatus(`Menyiapkan foto ${index + 1} dari ${files.length}…`);
+                    const { base64, mimeType, photo } = await prepareOcrFile(files[index]);
+                    setStatus(`Menganalisis foto ${index + 1} dari ${files.length}…`);
+                    const page = await requestAcademicOcr('questions', base64, mimeType, subjectName);
+                    setStatus(`Menyiapkan pratinjau foto ${index + 1} dari ${files.length}…`);
+                    const extractImages = (regions: ImageRegion[]) => {
+                        try {
+                            if (photo && regions.length) return cropQuizImages(photo, regions);
+                        } catch (error) {
+                            console.error('Gagal memotong gambar Academic:', error);
+                        }
+                        return { ocr_images: [], failed_crops: regions.length };
+                    };
                     allExtracted.push(...page.questions.map(({ regions, ...question }) => ({
                         ...question, ...extractImages(regions),
                     })));
@@ -126,24 +104,22 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                     allSolutions.push(...page.solutions.map(({ regions, ...solution }) => ({
                         ...solution, ...extractImages(regions),
                     })));
-                } catch (err) {
-                    console.error(`Gagal scan foto ke-${i + 1}:`, err);
-                    errorCount++;
-                } finally {
-                    URL.revokeObjectURL(photoUrl);
+                } catch (error) {
+                    failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
+                    console.error(`Gagal scan foto ke-${index + 1}:`, error);
                 }
             }
 
+            const warning = failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '';
             if (allExtracted.length || allPassages.length || allSolutions.length) {
                 setPreviewQuestions(prev => [...prev, ...allExtracted]);
                 setPassages(prev => [...prev, ...allPassages]);
                 setSolutions(prev => [...prev, ...allSolutions]);
-                const errNote = errorCount ? ` ${errorCount} foto gagal diproses.` : '';
                 setStatus(allExtracted.length
-                    ? `Ditemukan ${allExtracted.length} soal.${errNote} Periksa konteks dan gambar sebelum menyimpan.`
-                    : `Bacaan atau solusi sudah ditambahkan.${errNote} Pastikan halaman yang berisi soalnya ikut dipindai.`);
+                    ? `Ditemukan ${allExtracted.length} soal. Periksa konteks dan gambar sebelum menyimpan.${warning}`
+                    : `Bacaan atau solusi sudah ditambahkan. Pastikan halaman yang berisi soalnya ikut dipindai.${warning}`);
             } else {
-                setStatus(errorCount > 0 ? 'Gagal memproses gambar. Pastikan gambar jelas dan coba lagi.' : 'Tidak ada soal yang terdeteksi pada gambar.');
+                setStatus(failures.length ? `Gagal memproses scan.${warning}` : 'Tidak ada soal yang terdeteksi pada gambar.');
             }
         } finally {
             setIsWorking(false);
@@ -152,36 +128,35 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
 
     const handleScanKunci = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
-        if (files.length === 0) return;
-
-        startTransition(async () => {
-            const mergedKunci: Record<number, string> = {};
-            let errorCount = 0;
-
-            for (let i = 0; i < files.length; i++) {
-                const currentFile = files[i];
-                setStatus(`Membaca kunci jawaban foto ${i + 1} dari ${files.length}...`);
+        e.target.value = '';
+        if (!files.length || isBusy) return;
+        setIsWorking(true);
+        const mergedKunci: Record<number, string> = {};
+        const failures: string[] = [];
+        try {
+            for (let index = 0; index < files.length; index++) {
                 try {
-                    const { base64, mimeType } = await handleFileToBase64(currentFile);
-                    const result = await ocrKunciJawaban(base64, mimeType);
-                    if (result && typeof result === 'object') {
-                        Object.assign(mergedKunci, result);
-                    }
-                } catch (err: any) {
-                    console.error(`Gagal scan kunci foto ke-${i + 1}:`, err);
-                    errorCount++;
+                    setStatus(`Menyiapkan foto kunci ${index + 1} dari ${files.length}…`);
+                    const { base64, mimeType } = await prepareOcrFile(files[index]);
+                    setStatus(`Membaca kunci jawaban foto ${index + 1} dari ${files.length}…`);
+                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType));
+                } catch (error) {
+                    failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
+                    console.error(`Gagal scan kunci foto ke-${index + 1}:`, error);
                 }
             }
 
             const count = Object.keys(mergedKunci).length;
-            if (count > 0) {
+            const warning = failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '';
+            if (count) {
                 setKunciResult(prev => ({ ...(prev || {}), ...mergedKunci }));
-                setStatus(`Selesai! Terdeteksi total ${count} kunci jawaban dari ${files.length} gambar. Konfirmasi untuk menerapkan.`);
+                setStatus(`Terdeteksi ${count} kunci jawaban. Konfirmasi untuk menerapkan.${warning}`);
             } else {
-                setStatus('Kunci jawaban tidak terbaca pada gambar.');
+                setStatus(failures.length ? `Gagal memproses scan kunci.${warning}` : 'Kunci jawaban tidak terdeteksi pada gambar.');
             }
-        });
-        e.target.value = '';
+        } finally {
+            setIsWorking(false);
+        }
     };
 
     const handleApplyKunci = () => {

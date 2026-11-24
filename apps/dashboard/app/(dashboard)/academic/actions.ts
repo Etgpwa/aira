@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { GoogleGenAI } from '@google/genai';
 import { revalidatePath } from 'next/cache';
-import { MAX_IMAGE_BASE64, QUIZ_FIELDS, type QuizImage } from './quiz-ocr';
+import { MAX_IMAGE_BASE64, QUIZ_FIELDS, sortQuestionsBySourceNumber, type QuizImage } from './quiz-ocr';
 
 // ────────────────────────────────────────────────────────────────
 // Helper: Rotasi Multi-API Key Gemini untuk PWA (Anti-Limit 429/503)
@@ -220,6 +220,7 @@ export async function saveQuestions(questions: any[], moduleId: string) {
         correct_answer: q.correct_answer || '?',
         subject_name: q.subject_name || '',
         already_asked: false,
+        ...(Number.isSafeInteger(q.source_number) && q.source_number > 0 ? { source_number: q.source_number } : {}),
         ...(hasImages ? { ocr_images: q.ocr_images || [] } : {}),
     }));
 
@@ -229,6 +230,9 @@ export async function saveQuestions(questions: any[], moduleId: string) {
         : bank.insert(insertData));
     if (error) {
         console.error('Gagal menyimpan soal Academic:', error);
+        if (questions.some(q => q.source_number != null) && (error.code === 'PGRST204' || error.code === '42703')) {
+            return { error: 'Jalankan migrasi add_source_number_to_quiz_questions.sql di Supabase, lalu simpan ulang pratinjau ini.' };
+        }
         if (hasImages && (error.code === 'PGRST204' || error.code === '42703')) {
             return { error: 'Gagal menyimpan gambar. Jalankan migrasi OCR Academic di Supabase terlebih dahulu.' };
         }
@@ -274,23 +278,26 @@ export async function applyKunciToModule(moduleId: string, kunci: Record<number,
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
-    // Ambil semua soal di modul ini, urut sesuai created_at
-    const { data: questions } = await supabase
+    // Nomor tercetak dipakai untuk soal OCR; data lama tetap memakai urutan simpan.
+    const { data: questions, error: readError } = await supabase
         .from('course_quiz_questions')
-        .select('id')
+        .select('*')
         .eq('module_id', moduleId)
         .eq('user_id', user.id)
         .order('created_at', { ascending: true });
 
-    if (!questions) return;
+    if (readError || !questions) return { error: 'Gagal membaca soal. Coba lagi.' };
 
-    // Patch jawaban berdasarkan nomor urut
+    const orderedQuestions = sortQuestionsBySourceNumber(questions);
+
+    // Hindari memasangkan kunci ke nomor yang ambigu.
     for (const [nomor, jawaban] of Object.entries(kunci)) {
-        const idx = parseInt(nomor as string) - 1;
-        if (idx >= 0 && idx < questions.length) {
-            await supabase.from('course_quiz_questions')
+        const matches = orderedQuestions.filter((q, index) => (q.source_number ?? index + 1) === Number(nomor));
+        if (matches.length === 1) {
+            const { error } = await supabase.from('course_quiz_questions')
                 .update({ correct_answer: jawaban as string })
-                .eq('id', questions[idx].id);
+                .eq('id', matches[0].id).eq('user_id', user.id);
+            if (error) return { error: 'Sebagian kunci gagal disimpan. Coba lagi.' };
         }
     }
 

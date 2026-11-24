@@ -35,6 +35,12 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
   - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
   - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
 
+## Pengurutan dan Request OCR Academic
+
+- Pratinjau diurutkan numerik berdasarkan source_number, tanpa mengubah indeks draft untuk edit, eksklusi, konteks, dan solusi. Nomor tidak diketahui di akhir; nomor ganda tetap stabil.
+- Nomor asli disimpan melalui migrasi supabase/add_source_number_to_quiz_questions.sql. Bank soal dan kuis mengurutkan nomor asli; kunci dipasangkan dengan nomor asli, bukan urutan scan. Data lama tanpa nomor tetap memakai urutan created_at dan tidak ditebak ulang.
+- Sidik SHA-256 isi foto mencegah request ulang foto soal yang sudah berhasil selama pratinjau masih terbuka. Foto gagal/kosong boleh dicoba lagi; Batal atau selesai simpan membersihkan daftar sidik foto. OCR tetap per halaman.
+
 ## Alur Scan Soal Academic
 
 1. Dashboard mengirim salinan tiap foto ke endpoint terautentikasi `POST /api/academic/ocr`. Gemini mengembalikan JSON teks soal, nomor asli, rujukan, bacaan bersama, dan koordinat visual. Parser juga menerima daftar soal format lama atau respons yang tidak menyertakan bagian opsional.

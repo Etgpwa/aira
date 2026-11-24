@@ -91,7 +91,7 @@ function QuestionCard({ question, index, moduleId }: { question: any; index: num
                 className="w-full flex items-center gap-2.5 p-3.5 text-left"
                 onClick={() => setExpanded(e => !e)}
             >
-                <span className="text-xs font-bold text-secondary w-5 flex-shrink-0">{index + 1}</span>
+                <span className="text-xs font-bold text-secondary w-5 flex-shrink-0">{question.source_number ?? index + 1}</span>
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${typeColor}`}>
                     {question.question_type}
                 </span>

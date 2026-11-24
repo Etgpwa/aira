@@ -77,9 +77,29 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 const readText = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+const readQuestionNumber = (value: unknown) => {
+    const number = typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value;
+    return isQuestionNumber(number) ? number : null;
+};
 const readCaseName = (value: unknown) => readText(value).slice(0, 80);
 const isQuestionNumber = (value: unknown): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+// Keep unknown and duplicate numbers stable; never mutate draft indices used by edits/exclusions.
+export function sortQuestionsBySourceNumber<T extends { source_number?: number | null }>(questions: readonly T[]): T[] {
+    return [...questions].sort((a, b) => {
+        const left = isQuestionNumber(a.source_number) ? a.source_number : Number.POSITIVE_INFINITY;
+        const right = isQuestionNumber(b.source_number) ? b.source_number : Number.POSITIVE_INFINITY;
+        return left === right ? 0 : left - right;
+    });
+}
+
+export async function fingerprintOcrPhoto(photo: Blob): Promise<string | null> {
+    // Deduplication is optional on browsers without Web Crypto (e.g. local HTTP).
+    if (!globalThis.crypto?.subtle) return null;
+    const hash = await crypto.subtle.digest('SHA-256', await photo.arrayBuffer());
+    return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function readRegions(value: unknown): ImageRegion[] {
     return Array.isArray(value)
@@ -113,7 +133,7 @@ export function parseOcrPage(raw: string, subjectName: string, createId: () => s
                 option_c: readText(q.option_c) || null,
                 option_d: readText(q.option_d) || null,
                 correct_answer: readText(q.correct_answer) || '?',
-                source_number: isQuestionNumber(q.source_number) ? q.source_number : null,
+                source_number: readQuestionNumber(q.source_number),
                 reference_numbers: Array.isArray(q.reference_numbers) ? q.reference_numbers.filter(isQuestionNumber) : [],
                 references_previous: q.references_previous === true,
                 case_name: readCaseName(q.case_name) || undefined,

@@ -7,7 +7,7 @@ import ManualQuizInput from '../../components/ManualQuizInput';
 import { useRouter } from 'next/navigation';
 import QuizImages from '../../components/QuizImages';
 import {
-    MAX_OCR_PHOTO_BASE64, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS, resolveOcrQuestions,
+    MAX_OCR_PHOTO_BASE64, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto,
     type AcademicOcrResults, type ImageRegion, type OcrPassage, type OcrQuestion, type OcrSolution,
 } from '../../quiz-ocr';
 import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
@@ -57,13 +57,16 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     const [isWorking, setIsWorking] = useState(false);
     const isBusy = isWorking || isPending;
     const resolved = useMemo(() => resolveOcrQuestions(previewQuestions, passages, solutions), [previewQuestions, passages, solutions]);
-    const included = previewQuestions.map((question, index) => ({ question, index }))
-        .filter(({ index }) => !excludedIndices.includes(index));
+    const included = sortQuestionsBySourceNumber(previewQuestions.map((question, index) => ({
+        question, index, source_number: question.source_number,
+    })).filter(({ index }) => !excludedIndices.includes(index)));
     const unmatchedSolutionNumbers = Array.from(new Set(solutions.map(solution => solution.source_number)))
         .filter(number => !previewQuestions.some(question => question.source_number === number));
     const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
     const [status, setStatus] = useState<string>('');
     const router = useRouter();
+
+    const processedQuestionPhotos = useRef(new Set<string>());
 
     const cameraSoalInputRef = useRef<HTMLInputElement>(null);
     const folderSoalInputRef = useRef<HTMLInputElement>(null);
@@ -75,6 +78,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
         e.target.value = '';
         if (!files.length || isBusy) return;
         setIsWorking(true);
+        let skippedPhotos = 0;
         const allExtracted: OcrQuestion[] = [];
         const allPassages: OcrPassage[] = [];
         const allSolutions: OcrSolution[] = [];
@@ -83,6 +87,11 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             for (let index = 0; index < files.length; index++) {
                 try {
                     setStatus(`Menyiapkan foto ${index + 1} dari ${files.length}…`);
+                    const fingerprint = await fingerprintOcrPhoto(files[index]);
+                    if (fingerprint && processedQuestionPhotos.current.has(fingerprint)) {
+                        skippedPhotos++;
+                        continue;
+                    }
                     const { base64, mimeType, photo } = await prepareOcrFile(files[index]);
                     setStatus(`Menganalisis foto ${index + 1} dari ${files.length}…`);
                     const page = await requestAcademicOcr('questions', base64, mimeType, subjectName);
@@ -104,13 +113,17 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                     allSolutions.push(...page.solutions.map(({ regions, ...solution }) => ({
                         ...solution, ...extractImages(regions),
                     })));
+                    if (fingerprint && (page.questions.length || page.passages.length || page.solutions.length)) {
+                        processedQuestionPhotos.current.add(fingerprint);
+                    }
                 } catch (error) {
                     failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
                     console.error(`Gagal scan foto ke-${index + 1}:`, error);
                 }
             }
 
-            const warning = failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '';
+            const warning = (failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '')
+                + (skippedPhotos ? ` ${skippedPhotos} foto sudah dipindai; tidak mengirim request ulang.` : '');
             if (allExtracted.length || allPassages.length || allSolutions.length) {
                 setPreviewQuestions(prev => [...prev, ...allExtracted]);
                 setPassages(prev => [...prev, ...allPassages]);
@@ -119,7 +132,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                     ? `Ditemukan ${allExtracted.length} soal. Periksa konteks dan gambar sebelum menyimpan.${warning}`
                     : `Bacaan atau solusi sudah ditambahkan. Pastikan halaman yang berisi soalnya ikut dipindai.${warning}`);
             } else {
-                setStatus(failures.length ? `Gagal memproses scan.${warning}` : 'Tidak ada soal yang terdeteksi pada gambar.');
+                setStatus(failures.length ? `Gagal memproses scan.${warning}` : skippedPhotos ? warning.trim() : 'Tidak ada soal yang terdeteksi pada gambar.');
             }
         } finally {
             setIsWorking(false);
@@ -162,7 +175,11 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     const handleApplyKunci = () => {
         if (!kunciResult) return;
         startTransition(async () => {
-            await applyKunciToModule(moduleId, kunciResult);
+            const result = await applyKunciToModule(moduleId, kunciResult);
+            if (result?.error) {
+                setStatus(result.error);
+                return;
+            }
             setKunciResult(null);
             setStatus('Kunci jawaban berhasil diterapkan!');
             router.refresh();
@@ -170,6 +187,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
     };
 
     const resetPreview = () => {
+        processedQuestionPhotos.current.clear();
         setPreviewQuestions([]);
         setPassages([]);
         setSolutions([]);
@@ -183,6 +201,7 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             const { context, images } = resolved[index];
             return {
                 id: question.draft_id,
+                source_number: question.source_number,
                 question_text: [context, question.question_text].filter(Boolean).join('\n\n'),
                 question_type: question.question_type,
                 option_a: question.option_a,

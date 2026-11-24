@@ -1,3 +1,4 @@
+import { sortQuestionsBySourceNumber } from '../../quiz-ocr';
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Play, Sparkles } from 'lucide-react';
@@ -33,7 +34,7 @@ export default async function ModuleQuizPage({
         .eq('user_id', user.id)
         .order('created_at', { ascending: true });
 
-    const mcqQuestions = (questions || []).filter(q => q.question_type === 'MCQ');
+    const mcqQuestions = sortQuestionsBySourceNumber(questions || []).filter(q => q.question_type === 'MCQ');
     const initialMode = searchParams?.mode === 'challenge' ? 'challenge' : 'normal';
 
     return (

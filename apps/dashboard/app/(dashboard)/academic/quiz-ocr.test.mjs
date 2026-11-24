@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseOcrAnswerKey, parseOcrPage, resolveOcrQuestions } from './quiz-ocr.ts';
+import { parseOcrAnswerKey, parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto } from './quiz-ocr.ts';
 
 test('menerima daftar soal format lama dan halaman dengan bagian opsional yang hilang', () => {
     const raw = '[{"question_text":"Pilih jenis grafik.","question_type":"MCQ","option_a":"Batang"}]';
@@ -127,4 +127,41 @@ test('menghentikan rujukan yang melingkar tanpa menyalin soal itu sendiri', () =
 
     assert.match(first.context, /Teks asli 2/);
     assert.doesNotMatch(first.context, /Teks asli 1/);
+});
+
+test('mengurutkan nomor numerik lintas scan tanpa mengubah identitas draft', () => {
+    const original = [question(8), question(10), question(2), question(1)];
+    const sorted = sortQuestionsBySourceNumber(original);
+    assert.deepEqual(sorted.map(q => q.source_number), [1, 2, 8, 10]);
+    assert.deepEqual(original.map(q => q.source_number), [8, 10, 2, 1]);
+    assert.equal(sorted[0], original[3]);
+});
+
+test('nomor ganda stabil dan nomor tidak diketahui diletakkan terakhir', () => {
+    const original = [question(null), question(8), question(2), question(2), question(null)];
+    assert.deepEqual(sortQuestionsBySourceNumber(original), [original[2], original[3], original[1], original[0], original[4]]);
+});
+
+test('urutan tampilan mempertahankan indeks edit, eksklusi, konteks, dan solusi', () => {
+    const original = [question(8, { reference_numbers: [1] }), question(2), question(1)];
+    const resolved = resolveOcrQuestions(original, [], [{ source_number: 8, ocr_images: [{ field: 'correct_answer', data: 'solusi8' }], failed_crops: 0 }]);
+    const included = sortQuestionsBySourceNumber(original.map((q, index) => ({ question: q, index, source_number: q.source_number })).filter(q => q.index !== 1));
+    assert.deepEqual(included.map(q => q.index), [2, 0]);
+    assert.match(resolved[included[1].index].context, /Teks asli 1/);
+    assert.equal(resolved[included[1].index].images[0].data, 'solusi8');
+});
+
+test('parser menerima nomor berupa string angka tanpa menebak nomor kosong', () => {
+    const page = parseOcrPage(JSON.stringify({ questions: [
+        { question_text: 'Delapan', source_number: '8' },
+        { question_text: 'Tidak bernomor', source_number: null },
+        { question_text: 'Bukan nomor', source_number: '8abc' },
+    ] }), '', () => 'draft');
+    assert.deepEqual(page.questions.map(q => q.source_number), [8, null, null]);
+});
+
+test('sidik foto mengikuti isi, bukan nama, untuk melewati foto yang sudah berhasil', async () => {
+    const first = await fingerprintOcrPhoto(new Blob(['foto-sama']));
+    assert.equal(first, await fingerprintOcrPhoto(new Blob(['foto-sama'])));
+    assert.notEqual(first, await fingerprintOcrPhoto(new Blob(['foto-berbeda'])));
 });

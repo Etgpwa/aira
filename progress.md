@@ -65,6 +65,13 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 
 | **Fix Bug** | **Rotasi API key OCR Academic berhenti setelah dua key**<br>OCR mencoba key berbeda pada Gemini 3.8 Flash sebelum beralih ke model cadangan sesuai tenggat. Tenggat percobaan diberlakukan secara lokal agar Gemini tidak menolak sisa waktu yang terlalu pendek dengan HTTP 400. Kuota, penolakan key, dan gangguan Gemini ditampilkan secara terpisah bersama jumlah key yang dicoba. Lokasi env dashboard dan backend diperjelas. | ✅ Diperbaiki |
 
+## Perbaikan OCR Academic (2026-11-24)
+
+- Urutan numerik lintas foto/scan pada pratinjau, simpan, bank soal, dan kuis; source_number dipertahankan di database melalui migrasi SQL baru.
+- Pencocokan kunci memakai nomor asli dan melewati nomor ambigu. Foto soal sukses yang dipilih ulang dalam pratinjau tidak mengirim request OCR lagi; foto gagal tetap dapat dicoba ulang.
+- Regresi diuji untuk urutan 8, 10, 2, 1; nomor ganda/kosong; indeks edit/eksklusi dan pasangan konteks/solusi; parser nomor string; sidik isi foto.
+- Migrasi SQL disiapkan untuk dijalankan di Supabase; data lama tanpa nomor asli tidak dinomori ulang otomatis.
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

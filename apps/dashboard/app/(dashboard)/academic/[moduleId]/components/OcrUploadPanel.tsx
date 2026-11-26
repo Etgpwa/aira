@@ -9,24 +9,29 @@ import QuizImages from '../../components/QuizImages';
 import {
     MAX_OCR_PHOTO_BASE64, MAX_PERSONAL_KEY_INPUT, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS,
     resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, mergeOcrStrips, readPersonalGeminiKeys,
+    readTokenMurahOcrSettings, TOKENMURAH_OCR_DEFAULT_MODEL, type TokenMurahOcrSettings,
     type AcademicOcrResults, type ImageRegion, type OcrPage, type OcrPassage, type OcrQuestion, type OcrSolution, type OcrStrip,
 } from '../../quiz-ocr';
 import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
 
+type OcrCredentials = { personalGeminiKeys?: string; tokenMurah?: TokenMurahOcrSettings };
+
 async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
-    kind: Kind, base64: string, mimeType: string, personalGeminiKeys?: string, subjectName?: string,
+    kind: Kind, base64: string, mimeType: string, credentials: OcrCredentials, subjectName?: string,
 ): Promise<AcademicOcrResults[Kind]> {
     if (base64.length > MAX_OCR_PHOTO_BASE64) {
         throw new Error('File foto terlalu besar. Pilih versi berukuran lebih kecil.');
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), OCR_CLIENT_TIMEOUT_MS);
-    const timeoutMessage = 'Server OCR terlalu lama merespons. Ulangi scan foto ini.';
+    const timeoutMessage = credentials.tokenMurah
+        ? 'Server OCR terlalu lama merespons. Periksa Log request TokenMurah sebelum mencoba lagi.'
+        : 'Server OCR terlalu lama merespons. Ulangi scan foto ini.';
     try {
         const response = await fetch('/api/academic/ocr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ kind, base64, mimeType, subjectName, personalGeminiKeys }),
+            body: JSON.stringify({ kind, base64, mimeType, subjectName, ...credentials }),
             signal: controller.signal,
         }).catch(() => {
             throw new Error(controller.signal.aborted ? timeoutMessage : 'Koneksi ke server OCR gagal. Coba lagi.');
@@ -67,9 +72,14 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
     const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
     const [status, setStatus] = useState<string>('');
     const [personalKeys, setPersonalKeys] = useState<string>();
+    const [tokenMurah, setTokenMurah] = useState<TokenMurahOcrSettings>();
+    const [providerDraft, setProviderDraft] = useState<'gemini' | 'tokenmurah'>('gemini');
+    const [modelDraft, setModelDraft] = useState(TOKENMURAH_OCR_DEFAULT_MODEL);
     const [keyDraft, setKeyDraft] = useState('');
     const [keyError, setKeyError] = useState('');
     const keyStorage = `academic-ocr-gemini:${userId}`;
+    const tokenMurahStorage = `academic-ocr-tokenmurah:${userId}`;
+    const credentials: OcrCredentials = tokenMurah ? { tokenMurah } : { personalGeminiKeys: personalKeys };
     const router = useRouter();
 
     useEffect(() => {
@@ -79,17 +89,42 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
         } catch {
             setPersonalKeys(undefined);
         }
-    }, [keyStorage]);
+        try {
+            const stored = readTokenMurahOcrSettings(JSON.parse(sessionStorage.getItem(tokenMurahStorage) ?? 'null'));
+            setTokenMurah(stored ?? undefined);
+            setModelDraft(stored?.model ?? TOKENMURAH_OCR_DEFAULT_MODEL);
+            setProviderDraft(stored ? 'tokenmurah' : 'gemini');
+        } catch {
+            setTokenMurah(undefined);
+            setModelDraft(TOKENMURAH_OCR_DEFAULT_MODEL);
+            setProviderDraft('gemini');
+        }
+    }, [keyStorage, tokenMurahStorage]);
 
     const selectGeminiKeys = (keys?: string) => {
         setPersonalKeys(keys);
+        setTokenMurah(undefined);
+        setProviderDraft('gemini');
         setKeyDraft('');
         setKeyError('');
         try {
+            sessionStorage.removeItem(tokenMurahStorage);
             if (keys) sessionStorage.setItem(keyStorage, keys);
             else sessionStorage.removeItem(keyStorage);
         } catch {
             // Pilihan masih dapat dipakai di halaman ini jika browser memblokir sessionStorage.
+        }
+    };
+
+    const selectTokenMurah = (settings: TokenMurahOcrSettings) => {
+        setTokenMurah(settings);
+        setModelDraft(settings.model);
+        setKeyDraft('');
+        setKeyError('');
+        try {
+            sessionStorage.setItem(tokenMurahStorage, JSON.stringify(settings));
+        } catch {
+            // Pilihan masih berlaku di halaman ini.
         }
     };
 
@@ -126,7 +161,7 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                         setStatus(`Menganalisis ${label}…`);
                         try {
                             const { base64, mimeType } = encode(strip);
-                            const page = await requestAcademicOcr('questions', base64, mimeType, personalKeys, subjectName);
+                            const page = await requestAcademicOcr('questions', base64, mimeType, credentials, subjectName);
                             scans.push({ page, strip });
                         } catch (error) {
                             failures.push(`${label}. ${error instanceof Error ? error.message : 'Ulangi scan bagian ini.'}`);
@@ -193,7 +228,7 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                     const { encode } = await prepareOcrFile(files[index]);
                     const { base64, mimeType } = encode(null);
                     setStatus(`Membaca kunci jawaban foto ${index + 1} dari ${files.length}…`);
-                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType, personalKeys));
+                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType, credentials));
                 } catch (error) {
                     failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
                     console.error(`Gagal scan kunci foto ke-${index + 1}:`, error);
@@ -373,15 +408,39 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
 
             <details className="rounded-[14px] border border-surface-variant bg-surface-bright px-3 py-2.5">
                 <summary className="cursor-pointer text-sm font-semibold text-on-surface">
-                    API Gemini <span className="ml-1 text-xs font-normal text-secondary">
-                        {personalKeys ? `${personalKeys.split(',').length} key pribadi aktif` : 'Key dashboard'}
+                    API OCR <span className="ml-1 break-words text-xs font-normal text-secondary">
+                        {tokenMurah ? `TokenMurah · ${tokenMurah.model}`
+                            : personalKeys ? `Gemini · ${personalKeys.split(',').length} key pribadi aktif` : 'Gemini · Key dashboard'}
                     </span>
                 </summary>
+                <div className="mt-3 flex gap-2" role="group" aria-label="Penyedia API OCR">
+                    {(['gemini', 'tokenmurah'] as const).map(provider => (
+                        <button key={provider} type="button" disabled={isBusy} aria-pressed={providerDraft === provider}
+                            onClick={() => {
+                                setProviderDraft(provider);
+                                setKeyDraft('');
+                                setKeyError('');
+                            }}
+                            className={`rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50 ${providerDraft === provider
+                                ? 'border-primary bg-primary/10 text-primary' : 'border-surface-variant text-on-surface'}`}>
+                            {provider === 'gemini' ? 'Gemini' : 'TokenMurah'}
+                        </button>
+                    ))}
+                </div>
                 <form
                     className="mt-3 grid gap-2"
                     onSubmit={event => {
                         event.preventDefault();
                         if (isBusy) return;
+                        if (providerDraft === 'tokenmurah') {
+                            const settings = readTokenMurahOcrSettings({ apiKey: keyDraft.trim() || tokenMurah?.apiKey, model: modelDraft });
+                            if (!settings) {
+                                setKeyError('Isi API key TokenMurah yang utuh dan ID model dari katalog.');
+                                return;
+                            }
+                            selectTokenMurah(settings);
+                            return;
+                        }
                         const keys = readPersonalGeminiKeys(keyDraft);
                         if (!keys) {
                             setKeyError('Tempel API key lengkap dari Google AI Studio, tanpa tanda kutip. Pisahkan beberapa key dengan koma.');
@@ -390,11 +449,14 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                         selectGeminiKeys(keys.join(','));
                     }}
                 >
-                    <label className="text-xs font-semibold text-on-surface" htmlFor="academic-gemini-key">API key pribadi</label>
+                    <label className="text-xs font-semibold text-on-surface" htmlFor="academic-ocr-key">
+                        {providerDraft === 'tokenmurah' ? 'API key TokenMurah' : 'API key Gemini pribadi'}
+                    </label>
                     <input
-                        id="academic-gemini-key"
+                        id="academic-ocr-key"
                         type="password"
                         value={keyDraft}
+                        placeholder={providerDraft === 'tokenmurah' ? (tokenMurah ? 'Key sudah aktif di tab ini' : 'sk-tm-…') : undefined}
                         maxLength={MAX_PERSONAL_KEY_INPUT}
                         autoComplete="off"
                         autoCapitalize="none"
@@ -405,19 +467,39 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                             setKeyError('');
                         }}
                         className="min-w-0 rounded-lg border border-surface-variant bg-surface px-3 py-2 text-sm text-on-surface"
-                        aria-describedby="academic-gemini-key-help"
+                        aria-describedby="academic-ocr-key-help"
                         aria-invalid={Boolean(keyError)}
                     />
-                    <p id="academic-gemini-key-help" className="text-xs text-secondary">
-                        Pisahkan beberapa key dengan koma. Key aktif untuk Scan Soal dan Scan Kunci di tab ini.
-                        {' '}<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="font-semibold text-primary underline">Ambil key di Google AI Studio</a>
+                    {providerDraft === 'tokenmurah' && (
+                        <label className="grid gap-1 text-xs font-semibold text-on-surface">
+                            ID model yang menerima gambar
+                            <input type="text" value={modelDraft} maxLength={128} spellCheck={false}
+                                autoCapitalize="none" disabled={isBusy}
+                                onChange={event => { setModelDraft(event.target.value); setKeyError(''); }}
+                                className="min-w-0 rounded-lg border border-surface-variant bg-surface px-3 py-2 text-sm font-normal text-on-surface" />
+                        </label>
+                    )}
+                    <p id="academic-ocr-key-help" className="text-xs text-secondary">
+                        {providerDraft === 'tokenmurah' ? (
+                            <>Scan memakai saldo atau kuota TokenMurah di tab ini.{' '}
+                                <a href="https://tokenmurah.net/dashboard/api-keys" target="_blank" rel="noreferrer" className="font-semibold text-primary underline">Kelola key TokenMurah</a>
+                            </>
+                        ) : (
+                            <>Pisahkan beberapa key dengan koma. Key aktif untuk Scan Soal dan Scan Kunci di tab ini.{' '}
+                                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="font-semibold text-primary underline">Ambil key di Google AI Studio</a>
+                            </>
+                        )}
                     </p>
                     {keyError && <p role="alert" className="text-xs font-medium text-red-600">{keyError}</p>}
                     <div className="flex flex-wrap gap-2">
                         <button type="submit" disabled={isBusy} className="rounded-full bg-primary px-3 py-2 text-xs font-bold text-on-primary disabled:opacity-50">
-                            Pakai key pribadi
+                            {providerDraft === 'tokenmurah' ? 'Pakai TokenMurah' : 'Pakai key pribadi'}
                         </button>
-                        {personalKeys && (
+                        {tokenMurah ? (
+                            <button type="button" onClick={() => selectGeminiKeys(personalKeys)} disabled={isBusy} className="rounded-full bg-surface-container px-3 py-2 text-xs font-bold text-on-surface disabled:opacity-50">
+                                Kembali ke Gemini
+                            </button>
+                        ) : providerDraft === 'gemini' && personalKeys && (
                             <button type="button" onClick={() => selectGeminiKeys()} disabled={isBusy} className="rounded-full bg-surface-container px-3 py-2 text-xs font-bold text-on-surface disabled:opacity-50">
                                 Kembali ke key dashboard
                             </button>

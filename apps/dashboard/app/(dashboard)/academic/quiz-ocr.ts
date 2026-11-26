@@ -52,6 +52,18 @@ export type OcrPage = {
 export const MAX_OCR_PHOTO_BASE64 = 3_500_000;
 export const OCR_CLIENT_TIMEOUT_MS = 36_000;
 export const MAX_PERSONAL_KEY_INPUT = 2048;
+export const TOKENMURAH_OCR_DEFAULT_MODEL = 'gpt-5.4-mini';
+
+export type TokenMurahOcrSettings = { apiKey: string; model: string };
+
+export function readTokenMurahOcrSettings(value: unknown): TokenMurahOcrSettings | null {
+    const settings = asRecord(value);
+    const apiKey = readText(settings?.apiKey);
+    const model = readText(settings?.model);
+    if (!/^sk-t[mp]-[A-Za-z0-9._-]{8,250}$/.test(apiKey)) return null;
+    if (model.includes('://') || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(model)) return null;
+    return { apiKey, model };
+}
 
 export function readPersonalGeminiKeys(value: unknown): string[] | null {
     if (typeof value !== 'string' || value.length > MAX_PERSONAL_KEY_INPUT) return null;

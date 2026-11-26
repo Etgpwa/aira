@@ -83,6 +83,10 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 
 - Panel dan endpoint OCR menerima key otorisasi `AQ.` dari Google AI Studio bersama key standar. Validasi tetap menolak key kosong dan spasi di dalam key.
 
+## OCR Academic melalui TokenMurah
+
+- Scan Soal dan Scan Kunci dapat memakai TokenMurah lewat pilihan penyedia di panel **API OCR**. Key dan model disetel dari web, dengan pesan yang membedakan saldo atau kuota, akses model, dan gangguan API.
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

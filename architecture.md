@@ -44,8 +44,9 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 
 ## Alur Scan Soal Academic
 
-1. Browser memotong screenshot soal yang panjang menjadi bagian vertikal yang tumpang tindih sebelum membuat JPEG maksimal 2.000 px. Tiap bagian dikirim berurutan ke `POST /api/academic/ocr` dan hasil yang berhasil masuk ke pratinjau meski bagian lain gagal. Panel API Gemini memilih key pribadi di sesi tab atau key dashboard untuk request OCR terautentikasi.
-2. Gemini mengembalikan teks, nomor, rujukan, bacaan, solusi, dan koordinat visual. Browser menyatukan soal yang cocok dari potongan tumpang tindih dan memetakan koordinat ke foto asli sebelum memotong visual sebagai WebP. Hasil semua foto digabung untuk menelusuri rujukan berdasarkan nomor atau nama kasus. Rujukan hilang atau ambigu ditandai di pratinjau.
+1. Browser memotong screenshot soal yang panjang menjadi bagian vertikal yang tumpang tindih sebelum membuat JPEG maksimal 2.000 px. Tiap bagian dikirim berurutan ke `POST /api/academic/ocr` dan hasil yang berhasil masuk ke pratinjau meski bagian lain gagal. Panel API OCR memilih Gemini atau TokenMurah untuk Scan Soal dan Scan Kunci.
+   Pilihan TokenMurah mengirim foto sebagai data URL ke Chat Completions dengan key sesi tab. Endpoint memakai model yang dipilih dan parser OCR yang sama dengan Gemini.
+2. Model OCR mengembalikan teks, nomor, rujukan, bacaan, solusi, dan koordinat visual. Browser menyatukan soal yang cocok dari potongan tumpang tindih dan memetakan koordinat ke foto asli sebelum memotong visual sebagai WebP. Hasil semua foto digabung untuk menelusuri rujukan berdasarkan nomor atau nama kasus. Rujukan hilang atau ambigu ditandai di pratinjau.
 3. Saat disimpan, konteks ditempel ke teks soal dan potongan disimpan di kolom `course_quiz_questions.ocr_images`. Bank soal dan CBT menampilkan visual sesuai letaknya. Gambar solusi tersedia di pembahasan. Soal bergambar tetap memakai versi asli di Challenge dan bank soal kuis teks WhatsApp menyaringnya.
 
 ## Alur Challenge Mode (Kuis Kuliah)

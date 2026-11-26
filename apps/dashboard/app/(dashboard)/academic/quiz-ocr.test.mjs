@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     mergeOcrStrips, planOcrStrips, readPersonalGeminiKeys, parseOcrAnswerKey,
-    parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto,
+    parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, readTokenMurahOcrSettings,
 } from './quiz-ocr.ts';
 
 test('merencanakan potongan foto panjang yang menutup gambar dan saling tumpang tindih', () => {
@@ -53,6 +53,17 @@ test('menerima key otorisasi AQ. bersama key standar tanpa mengubah isinya', () 
     assert.equal(readPersonalGeminiKeys('AQ..example_authorization_key'), null);
     assert.equal(readPersonalGeminiKeys('AQ.example authorization key'), null);
     assert.equal(readPersonalGeminiKeys(`AQ.${'a'.repeat(254)}`), null);
+});
+
+test('membaca konfigurasi TokenMurah dengan ID model vision dari katalog', () => {
+    assert.deepEqual(readTokenMurahOcrSettings({ apiKey: ' sk-tm-example_fake_key ', model: ' gpt-5.4-mini ' }), {
+        apiKey: 'sk-tm-example_fake_key', model: 'gpt-5.4-mini',
+    });
+    assert.deepEqual(readTokenMurahOcrSettings({ apiKey: 'sk-tp-example_fake_key', model: 'model/vision' }), {
+        apiKey: 'sk-tp-example_fake_key', model: 'model/vision',
+    });
+    assert.equal(readTokenMurahOcrSettings({ apiKey: 'AQ.example_gemini_key', model: 'gpt-5.4-mini' }), null);
+    assert.equal(readTokenMurahOcrSettings({ apiKey: 'sk-tm-example_fake_key', model: 'https://example.com' }), null);
 });
 test('menerima daftar soal format lama dan halaman dengan bagian opsional yang hilang', () => {
     const raw = '[{"question_text":"Pilih jenis grafik.","question_type":"MCQ","option_a":"Batang"}]';

@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { MAX_OCR_PHOTO_BASE64, parseOcrAnswerKey, parseOcrPage, readPersonalGeminiKeys } from '@/app/(dashboard)/academic/quiz-ocr';
+import { MAX_OCR_PHOTO_BASE64, parseOcrAnswerKey, parseOcrPage, readPersonalGeminiKeys, readTokenMurahOcrSettings } from '@/app/(dashboard)/academic/quiz-ocr';
 import { QUIZ_OCR_PROMPTS } from '@/app/(dashboard)/academic/quiz-ocr-prompts';
 import { getOcrGeminiKeys, OCR_GEMINI_TIMEOUT_MS, runOcrGeminiRotation } from './gemini-rotation';
+import { requestTokenMurahOcr } from './tokenmurah';
 
 export const maxDuration = 35;
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
         return ocrError('Kiriman foto tidak lengkap. Pilih fotonya kembali.', 400);
     }
 
-    const { kind, base64, mimeType, subjectName, personalGeminiKeys } = payload ?? {};
+    const { kind, base64, mimeType, subjectName, personalGeminiKeys, tokenMurah } = payload ?? {};
     if (kind !== 'questions' && kind !== 'answer_key') return ocrError('Jenis scan tidak dikenali.', 400);
     if (typeof base64 !== 'string' || !base64 || typeof mimeType !== 'string'
         || !/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) {
@@ -39,6 +40,25 @@ export async function POST(request: Request) {
     }
     if (base64.length > MAX_OCR_PHOTO_BASE64) {
         return ocrError('File foto terlalu besar. Pilih versi berukuran lebih kecil.', 413);
+    }
+
+    const parseResult = (text: string) => kind === 'questions'
+        ? parseOcrPage(text, typeof subjectName === 'string' ? subjectName : '', randomUUID)
+        : parseOcrAnswerKey(text);
+
+    if (tokenMurah !== undefined) {
+        const settings = readTokenMurahOcrSettings(tokenMurah);
+        if (!settings) return ocrError('Format key atau ID model TokenMurah tidak valid.', 400);
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return ocrError('Waktu menyiapkan scan TokenMurah habis. Coba lagi.', 504);
+        const signal = AbortSignal.any([request.signal, AbortSignal.timeout(remaining)]);
+        const result = await requestTokenMurahOcr(settings, base64, mimeType, QUIZ_OCR_PROMPTS[kind], signal);
+        if ('error' in result) return ocrError(result.error, result.status);
+        try {
+            return NextResponse.json({ data: parseResult(result.text) });
+        } catch {
+            return ocrError('Model TokenMurah mengembalikan format OCR yang belum bisa dibaca.', 502);
+        }
     }
 
     const usesPersonalKeys = personalGeminiKeys !== undefined;
@@ -63,9 +83,7 @@ export async function POST(request: Request) {
                 abortSignal: signal,
             },
         });
-        return kind === 'questions'
-            ? parseOcrPage(response.text ?? '', typeof subjectName === 'string' ? subjectName : '', randomUUID)
-            : parseOcrAnswerKey(response.text ?? '');
+        return parseResult(response.text ?? '');
     }, data => 'questions' in data
         ? !data.questions.length && !data.passages.length && !data.solutions.length
         : !Object.keys(data).length);

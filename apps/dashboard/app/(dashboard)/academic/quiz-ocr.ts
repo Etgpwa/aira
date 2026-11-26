@@ -56,7 +56,7 @@ export const MAX_PERSONAL_KEY_INPUT = 2048;
 export function readPersonalGeminiKeys(value: unknown): string[] | null {
     if (typeof value !== 'string' || value.length > MAX_PERSONAL_KEY_INPUT) return null;
     const keys = value.split(',').map(key => key.trim()).filter(Boolean);
-    if (!keys.length || keys.some(key => !/^[A-Za-z0-9_-]{16,256}$/.test(key))) return null;
+    if (!keys.length || keys.some(key => key.length > 256 || !/^(?:AQ\.)?[A-Za-z0-9_-]{16,}$/.test(key))) return null;
     return Array.from(new Set(keys));
 }
 

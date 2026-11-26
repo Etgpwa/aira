@@ -79,6 +79,10 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 - Paket **Semua soal** memuat seluruh bank soal dari KB terpilih, termasuk esai dengan review mandiri.
 - **Kisi-kisi** menampilkan soal dan kunci jawaban per mata kuliah. Catatan penjelasan tersimpan otomatis melalui catatan per soal yang sudah ada.
 
+## Perbaikan API Gemini Pribadi
+
+- Panel dan endpoint OCR menerima key otorisasi `AQ.` dari Google AI Studio bersama key standar. Validasi tetap menolak key kosong dan spasi di dalam key.
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

@@ -43,6 +43,17 @@ test('menerima key pribadi yang dipisah koma dan menolak format lain', () => {
     assert.equal(readPersonalGeminiKeys(''), null);
     assert.equal(readPersonalGeminiKeys(`${first},https://example.com/`), null);
 });
+
+test('menerima key otorisasi AQ. bersama key standar tanpa mengubah isinya', () => {
+    const authKey = 'AQ.example_authorization_key_123';
+    const standardKey = 'AIzaExample_standard_key_123';
+    assert.deepEqual(readPersonalGeminiKeys(authKey), [authKey]);
+    assert.deepEqual(readPersonalGeminiKeys(` ${standardKey}, ${authKey}, ${authKey} `), [standardKey, authKey]);
+    assert.equal(readPersonalGeminiKeys('AQ.'), null);
+    assert.equal(readPersonalGeminiKeys('AQ..example_authorization_key'), null);
+    assert.equal(readPersonalGeminiKeys('AQ.example authorization key'), null);
+    assert.equal(readPersonalGeminiKeys(`AQ.${'a'.repeat(254)}`), null);
+});
 test('menerima daftar soal format lama dan halaman dengan bagian opsional yang hilang', () => {
     const raw = '[{"question_text":"Pilih jenis grafik.","question_type":"MCQ","option_a":"Batang"}]';
     const original = parseOcrPage(`Hasil OCR\n\`\`\`json\n${raw}\n\`\`\`\nSelesai`, 'Statistika', () => 'draft');

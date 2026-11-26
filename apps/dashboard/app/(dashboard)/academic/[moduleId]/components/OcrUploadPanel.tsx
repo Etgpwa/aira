@@ -384,7 +384,7 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                         if (isBusy) return;
                         const keys = readPersonalGeminiKeys(keyDraft);
                         if (!keys) {
-                            setKeyError('Masukkan API key Gemini. Pisahkan beberapa key dengan koma.');
+                            setKeyError('Tempel API key lengkap dari Google AI Studio, tanpa tanda kutip. Pisahkan beberapa key dengan koma.');
                             return;
                         }
                         selectGeminiKeys(keys.join(','));

@@ -48,6 +48,8 @@ export type OcrPage = {
     passages: (Omit<OcrPassage, 'ocr_images' | 'failed_crops'> & { regions: ImageRegion[] })[];
     solutions: (Omit<OcrSolution, 'ocr_images' | 'failed_crops'> & { regions: ImageRegion[] })[];
 };
+export type OcrAnswerKey = Pick<OcrPage, 'solutions'> & { choices: Record<number, string> };
+export type AnswerKeyEntry = { source_number: number } & ({ choice: string } | { images: QuizImage[] });
 
 export const MAX_OCR_PHOTO_BASE64 = 3_500_000;
 export const OCR_CLIENT_TIMEOUT_MS = 36_000;
@@ -193,7 +195,7 @@ export function mergeOcrStrips(
 
 export type AcademicOcrResults = {
     questions: OcrPage;
-    answer_key: Record<number, string>;
+    answer_key: OcrAnswerKey;
 };
 
 function readOcrJson(raw: string): unknown {
@@ -244,6 +246,15 @@ function readRegions(value: unknown): ImageRegion[] {
     return Array.isArray(value)
         ? value.filter(region => region && QUIZ_FIELDS.includes(region.field))
         : [];
+}
+
+function readOcrSolutions(value: unknown): OcrPage['solutions'] {
+    return (Array.isArray(value) ? value : []).flatMap((item: unknown) => {
+        const solution = asRecord(item);
+        const number = readQuestionNumber(solution?.source_number);
+        const regions = readRegions(solution?.regions).filter(region => region.field === 'correct_answer');
+        return number !== null && regions.length ? [{ source_number: number, regions }] : [];
+    });
 }
 
 export function parseOcrPage(raw: string, subjectName: string, createId: () => string): OcrPage {
@@ -299,23 +310,19 @@ export function parseOcrPage(raw: string, subjectName: string, createId: () => s
                 regions: readRegions(passage.regions).filter(region => region.field === 'question_text'),
             }];
         }),
-        solutions: (Array.isArray(solutions) ? solutions : []).flatMap((value: unknown) => {
-            const solution = asRecord(value);
-            const number = readQuestionNumber(solution?.source_number);
-            if (!solution || number === null) return [];
-            const regions = readRegions(solution.regions).filter(region => region.field === 'correct_answer');
-            return regions.length ? [{ source_number: number, regions }] : [];
-        }),
+        solutions: readOcrSolutions(solutions),
     };
 }
 
-export function parseOcrAnswerKey(raw: string): Record<number, string> {
+export function parseOcrAnswerKey(raw: string): OcrAnswerKey {
     const parsed = asRecord(readOcrJson(raw));
     if (!parsed) throw new SyntaxError('Respons kunci jawaban bukan objek JSON');
-    return Object.fromEntries(Object.entries(parsed).flatMap(([number, value]) => {
+    const choices = Object.fromEntries(Object.entries(asRecord(parsed.choices) ?? parsed).flatMap(([key, value]) => {
+        const number = readQuestionNumber(key);
         const answer = readText(value).toUpperCase();
-        return /^[1-9]\d*$/.test(number) && /^[A-E]$/.test(answer) ? [[number, answer]] : [];
+        return number !== null && /^[A-E]$/.test(answer) ? [[number, answer]] : [];
     }));
+    return { choices, solutions: readOcrSolutions(parsed.solutions) };
 }
 
 export function resolveOcrQuestions(questions: OcrQuestion[], passages: OcrPassage[], solutions: OcrSolution[] = []) {

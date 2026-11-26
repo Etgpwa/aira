@@ -19,7 +19,7 @@ export default function QuizImages({ images, field }: { images?: QuizImage[]; fi
             {/* eslint-disable-next-line @next/next/no-img-element -- potongan WebP sudah dikompresi saat scan */}
             <img src={`data:image/webp;base64,${image.data}`} alt={image.label || labels[field]}
                 loading="lazy" decoding="async"
-                className="block max-w-full w-auto h-auto max-h-96 object-contain rounded-lg" />
+                className={`block max-w-full w-auto h-auto object-contain rounded-lg ${field === 'correct_answer' ? '' : 'max-h-96'}`} />
             {image.label && <span className="block text-xs text-secondary mt-1">{image.label}</span>}
         </span>
     ));

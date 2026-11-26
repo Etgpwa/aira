@@ -3,8 +3,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { GoogleGenAI } from '@google/genai';
 import { revalidatePath } from 'next/cache';
-import { MAX_IMAGE_BASE64, QUIZ_FIELDS, sortQuestionsBySourceNumber, type QuizImage } from './quiz-ocr';
-import { EVENT_QUESTION_BATCH_SIZE, EVENT_RANDOM_COUNT, shuffleQuizItems, type EventQuestionSelection, type QuizBankQuestion } from './quiz-bank';
+import { MAX_IMAGE_BASE64, QUIZ_FIELDS, sortQuestionsBySourceNumber, type AnswerKeyEntry, type QuizImage } from './quiz-ocr';
+import { EVENT_QUESTION_BATCH_SIZE, EVENT_RANDOM_COUNT, MAX_NOTE_IMAGES, findAnswerKeyQuestion, shuffleQuizItems, type EventQuestionSelection, type QuizBankQuestion } from './quiz-bank';
 
 // ────────────────────────────────────────────────────────────────
 // Helper: Rotasi Multi-API Key Gemini untuk PWA (Anti-Limit 429/503)
@@ -184,6 +184,12 @@ export async function completeModule(moduleId: string, score: number) {
 // CRUD: Quiz Questions
 // ────────────────────────────────────────────────────────────────
 
+function isQuizWebp(data: unknown): data is string {
+    return typeof data === 'string' && data.length <= MAX_IMAGE_BASE64
+        && /^UklGR[A-Za-z0-9+/]*={0,2}$/.test(data)
+        && Buffer.from(data, 'base64').subarray(8, 12).toString() === 'WEBP';
+}
+
 export async function saveQuestions(questions: any[], moduleId: string) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -199,10 +205,7 @@ export async function saveQuestions(questions: any[], moduleId: string) {
         if (!Array.isArray(images) || images.some((image: QuizImage) => !image
             || !QUIZ_FIELDS.includes(image.field)
             || (image.label !== undefined && (typeof image.label !== 'string' || image.label.length > 120))
-            || typeof image.data !== 'string'
-            || image.data.length > MAX_IMAGE_BASE64
-            || !/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(image.data)
-            || Buffer.from(image.data, 'base64').subarray(8, 12).toString() !== 'WEBP')) {
+            || !isQuizWebp(image.data))) {
             return { error: 'Gagal menyimpan karena format gambar soal tidak valid.' };
         }
     }
@@ -274,35 +277,58 @@ export async function deleteQuestion(questionId: string, moduleId: string) {
     revalidatePath(`/academic/${moduleId}`);
 }
 
-export async function applyKunciToModule(moduleId: string, kunci: Record<number, string>) {
+export async function applyKunciToModule(moduleId: string, entries: AnswerKeyEntry[]) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
-    // Nomor tercetak dipakai untuk soal OCR; data lama tetap memakai urutan simpan.
-    const { data: questions, error: readError } = await supabase
-        .from('course_quiz_questions')
-        .select('*')
-        .eq('module_id', moduleId)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
-
-    if (readError || !questions) return { error: 'Gagal membaca soal. Coba lagi.' };
-
-    const orderedQuestions = sortQuestionsBySourceNumber(questions);
-
-    // Hindari memasangkan kunci ke nomor yang ambigu.
-    for (const [nomor, jawaban] of Object.entries(kunci)) {
-        const matches = orderedQuestions.filter((q, index) => (q.source_number ?? index + 1) === Number(nomor));
-        if (matches.length === 1) {
-            const { error } = await supabase.from('course_quiz_questions')
-                .update({ correct_answer: jawaban as string })
-                .eq('id', matches[0].id).eq('user_id', user.id);
-            if (error) return { error: 'Sebagian kunci gagal disimpan. Coba lagi.' };
-        }
+    let applied = 0;
+    const skippedIndices: number[] = [];
+    if (!Array.isArray(entries) || entries.some(entry => !entry || typeof entry !== 'object'
+        || !Number.isSafeInteger(entry.source_number) || entry.source_number <= 0
+        || ('choice' in entry ? typeof entry.choice !== 'string' || !/^[A-E]$/.test(entry.choice)
+            : !Array.isArray(entry.images) || !entry.images.length
+                || entry.images.some(image => image?.field !== 'correct_answer' || !isQuizWebp(image.data))))) {
+        return { applied, skippedIndices, error: 'Gagal menyimpan karena format kunci jawaban tidak valid.' };
     }
 
-    revalidatePath(`/academic/${moduleId}`);
+    const readQuestions = (fields: string) => supabase.from('course_quiz_questions').select(fields)
+        .eq('module_id', moduleId).eq('user_id', user.id).order('created_at').order('id');
+    let { data: questions, error: readError } = await readQuestions('id, question_type, source_number');
+    if (readError?.code === '42703') {
+        ({ data: questions, error: readError } = await readQuestions('id, question_type'));
+    }
+    if (readError || !questions) return { applied, skippedIndices, error: 'Gagal membaca soal. Coba lagi.' };
+    const ordered = sortQuestionsBySourceNumber(questions as unknown as Pick<QuizBankQuestion, 'id' | 'source_number' | 'question_type'>[]);
+    for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        const question = findAnswerKeyQuestion(ordered, entry.source_number, 'choice' in entry ? 'MCQ' : 'ESSAY');
+        if (!question) {
+            skippedIndices.push(index);
+            continue;
+        }
+
+        const result = 'choice' in entry
+            ? await supabase.from('course_quiz_questions').update({ correct_answer: entry.choice })
+                .eq('id', question.id).eq('user_id', user.id).eq('module_id', moduleId).eq('question_type', 'MCQ')
+                .select('id').maybeSingle()
+            : await supabase.rpc('append_quiz_answer_images', {
+                question_id: question.id, target_module_id: moduleId,
+                images: Array.from(new Set(entry.images.map(image => image.data)), data => ({ field: 'correct_answer', data })),
+            });
+        if (result.error) {
+            if (applied) revalidatePath(`/academic/${moduleId}`);
+            const migrationMissing = result.error.code === 'PGRST202' || result.error.code === '42883';
+            return { applied, skippedIndices, error: migrationMissing
+                ? 'Gagal menyimpan gambar esai. Jalankan migrasi add_quiz_answer_and_note_images.sql di Supabase.'
+                : 'Gagal menyimpan kunci. Coba lagi.' };
+        }
+        if (result.data) applied++;
+        else skippedIndices.push(index);
+    }
+
+    if (applied) revalidatePath(`/academic/${moduleId}`);
+    return { applied, skippedIndices };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -424,6 +450,24 @@ export async function saveQuestionNote(questionId: string, userNote: string) {
     }
     if (!data) throw new Error('Soal tidak tersedia.');
     return { success: true };
+}
+
+export async function saveQuestionNoteImages(questionId: string, added: string[], removed: string | null) {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: 'Sesi berakhir. Masuk lagi untuk menyimpan gambar catatan.' };
+    if (!Array.isArray(added) || added.length > MAX_NOTE_IMAGES || !added.every(isQuizWebp)
+        || (removed !== null && !isQuizWebp(removed))) {
+        return { error: 'Format atau jumlah gambar catatan tidak valid.' };
+    }
+
+    const { data, error } = await supabase.rpc('update_quiz_note_images', { question_id: questionId, added, removed });
+    if (error?.code === 'PGRST202' || error?.code === '42883' || error?.code === '42703') {
+        return { error: 'Jalankan migrasi add_quiz_answer_and_note_images.sql untuk menyimpan gambar catatan.' };
+    }
+    if (error?.code === '23514') return { error: `Maksimal ${MAX_NOTE_IMAGES} gambar per catatan.` };
+    if (error || !Array.isArray(data)) return { error: 'Gagal menyimpan gambar catatan.' };
+    return { images: data as string[] };
 }
 
 // ────────────────────────────────────────────────────────────────

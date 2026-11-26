@@ -21,6 +21,7 @@ import {
     Save
 } from 'lucide-react';
 import { completeModule, saveQuestionNote } from '../../actions';
+import QuestionNoteImages from '../../components/QuestionNoteImages';
 import QuizImages, { hasQuizImage } from '../../components/QuizImages';
 import { paraphraseTextQuestions } from '../../components/paraphrase-quiz';
 import { getQuizScore, shuffleQuizItems, type QuizBankQuestion } from '../../quiz-bank';
@@ -525,18 +526,23 @@ export default function QuizRunner({
                         <p className="text-[11px] text-secondary">
                             Tuliskan rumus, cara pengerjaan, atau tips soal ini. Catatan ini tersimpan permanen di database dan otomatis muncul saat soal ini di-review lagi.
                         </p>
-                        <textarea
-                            rows={2}
-                            value={currentNote}
-                            onChange={(e) =>
-                                setNoteInputs((prev) => ({
-                                    ...prev,
-                                    [currentQ.id]: e.target.value
-                                }))
-                            }
-                            placeholder="Contoh: Cara ngerjainnya eliminasi opsi A & B, lalu pakai rumus X..."
-                            className="w-full bg-surface-container border border-surface-variant rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary resize-none"
-                        />
+                        <QuestionNoteImages key={currentQ.id} questionId={currentQ.id} images={currentQ.user_note_images}
+                            onSaved={images => setSimQuestions(prev => prev.map(question =>
+                                question.id === currentQ.id ? { ...question, user_note_images: images } : question
+                            ))}>
+                            <textarea
+                                rows={2}
+                                value={currentNote}
+                                onChange={(e) =>
+                                    setNoteInputs((prev) => ({
+                                        ...prev,
+                                        [currentQ.id]: e.target.value
+                                    }))
+                                }
+                                placeholder="Contoh: Cara ngerjainnya eliminasi opsi A & B, lalu pakai rumus X..."
+                                className="w-full bg-surface-container border border-surface-variant rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary resize-none"
+                            />
+                        </QuestionNoteImages>
                         <div className="flex justify-end">
                             <button
                                 type="button"

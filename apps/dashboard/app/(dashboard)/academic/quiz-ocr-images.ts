@@ -21,17 +21,8 @@ export async function prepareOcrFile(file: File, splitLongPhoto = false): Promis
     strips: (OcrStrip | null)[];
     encode: (strip: OcrStrip | null) => { base64: string; mimeType: string };
 }> {
-    const photo = new Image();
-    const url = URL.createObjectURL(file);
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-        photo.src = url;
-        await Promise.race([
-            photo.decode(),
-            new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error('Browser terlalu lama membuka foto.')), 8_000);
-            }),
-        ]);
+        const photo = await decodeQuizImage(file);
         const strips = splitLongPhoto ? planOcrStrips(photo.naturalWidth, photo.naturalHeight) : [null];
         if (strips.length === 1) {
             const compressed = compressOcrPhoto(photo, strips[0]);
@@ -56,10 +47,52 @@ export async function prepareOcrFile(file: File, splitLongPhoto = false): Promis
             reader.readAsDataURL(file);
         });
         return { photo: null, strips: [null], encode: () => ({ base64, mimeType: file.type || 'image/jpeg' }) };
+    }
+}
+
+async function decodeQuizImage(file: File): Promise<HTMLImageElement> {
+    const photo = new Image();
+    const url = URL.createObjectURL(file);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        photo.src = url;
+        await Promise.race([
+            photo.decode(),
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Browser terlalu lama membuka foto.')), 8_000);
+            }),
+        ]);
+        return photo;
     } finally {
         clearTimeout(timer);
         URL.revokeObjectURL(url);
     }
+}
+
+function encodeQuizWebp(
+    image: HTMLImageElement, context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number,
+): string | undefined {
+    const canvas = context.canvas;
+    for (const [maxDim, quality] of [[1400, 0.84], [1200, 0.75], [960, 0.67], [720, 0.6], [520, 0.55]]) {
+        const scale = Math.min(1, maxDim / Math.max(width, height));
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, x, y, width, height, 0, 0, canvas.width, canvas.height);
+        const url = canvas.toDataURL('image/webp', quality);
+        if (!url.startsWith('data:image/webp;base64,')) break;
+        const data = url.split(',')[1];
+        if (data && data.length <= MAX_IMAGE_BASE64) return data;
+    }
+}
+
+export async function prepareNoteImage(file: File): Promise<string> {
+    const image = await decodeQuizImage(file);
+    const context = document.createElement('canvas').getContext('2d');
+    const data = context && encodeQuizWebp(image, context, 0, 0, image.naturalWidth, image.naturalHeight);
+    if (!data) throw new Error('Gambar catatan gagal dikompresi.');
+    return data;
 }
 
 export function cropQuizImages(image: HTMLImageElement, regions: ImageRegion[]) {
@@ -79,21 +112,8 @@ export function cropQuizImages(image: HTMLImageElement, regions: ImageRegion[]) 
         const cropWidth = Math.min(width, Math.ceil((right + 5) * width / 1000)) - x;
         const cropHeight = Math.min(height, Math.ceil((bottom + 5) * height / 1000)) - y;
 
-        for (const [maxDim, quality] of [[1400, 0.84], [1200, 0.75], [960, 0.67], [720, 0.6], [520, 0.55]]) {
-            const scale = Math.min(1, maxDim / Math.max(cropWidth, cropHeight));
-            canvas.width = Math.max(1, Math.round(cropWidth * scale));
-            canvas.height = Math.max(1, Math.round(cropHeight * scale));
-            context.fillStyle = '#fff';
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            context.drawImage(image, x, y, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
-            const url = canvas.toDataURL('image/webp', quality);
-            if (!url.startsWith('data:image/webp;base64,')) break;
-            const data = url.split(',')[1];
-            if (data.length <= MAX_IMAGE_BASE64) {
-                images.push({ field, data });
-                break;
-            }
-        }
+        const data = encodeQuizWebp(image, context, x, y, cropWidth, cropHeight);
+        if (data) images.push({ field, data });
     }
     return { ocr_images: images, failed_crops: regions.length - images.length };
 }

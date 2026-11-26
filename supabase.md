@@ -32,6 +32,8 @@ Semua tabel memiliki kolom `user_id` yang berelasi langsung dengan tabel `auth.u
 
 Untuk proyek Supabase yang sudah berjalan, jalankan [migrasi `add_ocr_images_to_quiz_questions.sql`](supabase/add_ocr_images_to_quiz_questions.sql) lewat SQL Editor, lalu lakukan *re-dump* skema. Penyimpanan menggunakan tabel yang sama tanpa bucket Supabase Storage.
 
+Untuk potongan Scan Kunci esai dan lampiran catatan, jalankan [migrasi `add_quiz_answer_and_note_images.sql`](supabase/add_quiz_answer_and_note_images.sql) setelah kolom `ocr_images` tersedia, lalu lakukan *re-dump* skema. Fungsi `append_quiz_answer_images` menambahkan gambar esai ke `ocr_images` milik soal. Kolom `user_note_images` menyimpan hingga 8 gambar WebP Base64 per catatan dan diperbarui lewat `update_quiz_note_images`. Kedua fungsi mengikuti RLS dan perubahan gambar berlangsung secara atomik. Lampiran ikut terhapus saat baris soal dihapus.
+
 ## Row Level Security (RLS)
 
 Keamanan data terjamin ketat menggunakan mekanisme RLS PostgreSQL.

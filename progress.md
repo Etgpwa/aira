@@ -87,6 +87,11 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 
 - Scan Soal dan Scan Kunci dapat memakai TokenMurah lewat pilihan penyedia di panel **API OCR**. Key dan model disetel dari web, dengan pesan yang membedakan saldo atau kuota, akses model, dan gangguan API.
 
+## Scan Kunci Esai dan Gambar Catatan Akademik
+
+- Scan Kunci memotong jawaban esai dari foto dan menampilkan WebP per nomor sebelum diterapkan ke bank soal. Kunci pilihan ganda tetap berupa huruf.
+- Catatan Kisi-kisi dan review simulasi mendukung unggah atau tempel gambar dari clipboard. Penambahan dan penghapusan lampiran tersimpan otomatis setelah migrasi Supabase.
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

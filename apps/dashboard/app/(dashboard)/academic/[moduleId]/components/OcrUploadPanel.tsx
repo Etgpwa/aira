@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp, FolderOpen, Image as ImageIcon } from 'lucide-react';
 import { applyKunciToModule, saveQuestions } from '../../actions';
 import ManualQuizInput from '../../components/ManualQuizInput';
@@ -10,11 +10,13 @@ import {
     MAX_OCR_PHOTO_BASE64, MAX_PERSONAL_KEY_INPUT, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS,
     resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, mergeOcrStrips, readPersonalGeminiKeys,
     readTokenMurahOcrSettings, TOKENMURAH_OCR_DEFAULT_MODEL, type TokenMurahOcrSettings,
-    type AcademicOcrResults, type ImageRegion, type OcrPage, type OcrPassage, type OcrQuestion, type OcrSolution, type OcrStrip,
+    type AcademicOcrResults, type AnswerKeyEntry, type ImageRegion, type OcrPage, type OcrPassage, type OcrQuestion, type OcrSolution, type OcrStrip, type QuizImage,
 } from '../../quiz-ocr';
 import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
 
 type OcrCredentials = { personalGeminiKeys?: string; tokenMurah?: TokenMurahOcrSettings };
+const MAX_SAVE_BYTES = 3_500_000;
+const answerEntryKey = (entry: AnswerKeyEntry) => `${'choice' in entry ? 'mcq' : 'essay'}-${entry.source_number}`;
 
 async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
     kind: Kind, base64: string, mimeType: string, credentials: OcrCredentials, subjectName?: string,
@@ -56,20 +58,19 @@ interface OcrUploadPanelProps {
 export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUploadPanelProps) {
     const [activePanel, setActivePanel] = useState<'none' | 'soal' | 'kunci' | 'manual'>('none');
     const [activePickerModal, setActivePickerModal] = useState<'soal' | 'kunci' | null>(null);
-    const [isPending, startTransition] = useTransition();
     const [previewQuestions, setPreviewQuestions] = useState<OcrQuestion[]>([]);
     const [passages, setPassages] = useState<OcrPassage[]>([]);
     const [solutions, setSolutions] = useState<OcrSolution[]>([]);
     const [excludedIndices, setExcludedIndices] = useState<number[]>([]);
     const [isWorking, setIsWorking] = useState(false);
-    const isBusy = isWorking || isPending;
+    const isBusy = isWorking;
     const resolved = useMemo(() => resolveOcrQuestions(previewQuestions, passages, solutions), [previewQuestions, passages, solutions]);
     const included = sortQuestionsBySourceNumber(previewQuestions.map((question, index) => ({
         question, index, source_number: question.source_number,
     })).filter(({ index }) => !excludedIndices.includes(index)));
     const unmatchedSolutionNumbers = Array.from(new Set(solutions.map(solution => solution.source_number)))
         .filter(number => !previewQuestions.some(question => question.source_number === number));
-    const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
+    const [kunciResult, setKunciResult] = useState<AnswerKeyEntry[]>([]);
     const [status, setStatus] = useState<string>('');
     const [personalKeys, setPersonalKeys] = useState<string>();
     const [tokenMurah, setTokenMurah] = useState<TokenMurahOcrSettings>();
@@ -219,47 +220,98 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
         e.target.value = '';
         if (!files.length || isBusy) return;
         setIsWorking(true);
-        const mergedKunci: Record<number, string> = {};
+        const choices: Record<number, string> = {};
+        const solutionImages = new Map<number, QuizImage[]>();
         const failures: string[] = [];
+        let failedCrops = 0;
         try {
             for (let index = 0; index < files.length; index++) {
                 try {
                     setStatus(`Menyiapkan foto kunci ${index + 1} dari ${files.length}…`);
-                    const { encode } = await prepareOcrFile(files[index]);
+                    const { photo, encode } = await prepareOcrFile(files[index]);
                     const { base64, mimeType } = encode(null);
                     setStatus(`Membaca kunci jawaban foto ${index + 1} dari ${files.length}…`);
-                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType, credentials));
+                    const page = await requestAcademicOcr('answer_key', base64, mimeType, credentials);
+                    Object.assign(choices, page.choices);
+                    for (const solution of page.solutions) {
+                        const crop = photo ? cropQuizImages(photo, solution.regions) : null;
+                        failedCrops += crop?.failed_crops ?? solution.regions.length;
+                        if (!crop?.ocr_images.length) continue;
+                        const previous = solutionImages.get(solution.source_number) ?? [];
+                        solutionImages.set(solution.source_number, [...previous, ...crop.ocr_images]);
+                    }
                 } catch (error) {
                     failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
                     console.error(`Gagal scan kunci foto ke-${index + 1}:`, error);
                 }
             }
 
-            const count = Object.keys(mergedKunci).length;
-            const warning = failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '';
-            if (count) {
-                setKunciResult(prev => ({ ...(prev || {}), ...mergedKunci }));
-                setStatus(`Terdeteksi ${count} kunci jawaban. Konfirmasi untuk menerapkan.${warning}`);
+            const entries: AnswerKeyEntry[] = [
+                ...Object.entries(choices).map(([number, choice]) => ({ source_number: Number(number), choice })),
+                ...Array.from(solutionImages, ([source_number, images]) => ({ source_number, images })),
+            ];
+            const warning = (failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '')
+                + (failedCrops ? ` ${failedCrops} potongan esai gagal dibuat. Coba unggah ulang sebagai JPG atau PNG.` : '');
+            if (entries.length) {
+                setKunciResult(prev => {
+                    const merged = new Map(prev.map(entry => [answerEntryKey(entry), entry]));
+                    for (const entry of entries) {
+                        const key = answerEntryKey(entry);
+                        const existing = merged.get(key);
+                        if ('choice' in entry) merged.set(key, entry);
+                        else {
+                            const images = existing && 'images' in existing ? [...existing.images, ...entry.images] : entry.images;
+                            merged.set(key, { ...entry, images: Array.from(new Map(images.map(image => [image.data, image])).values()) });
+                        }
+                    }
+                    return Array.from(merged.values()).sort((a, b) => a.source_number - b.source_number);
+                });
+                setStatus(`Terdeteksi ${entries.length} kunci jawaban. Periksa pratinjau sebelum menerapkan.${warning}`);
             } else {
-                setStatus(failures.length ? `Gagal memproses scan kunci.${warning}` : 'Kunci jawaban tidak terdeteksi pada gambar.');
+                setStatus(warning ? `Gagal memproses scan kunci.${warning}` : 'Kunci jawaban tidak terdeteksi. Pastikan nomor soal terlihat di foto.');
             }
         } finally {
             setIsWorking(false);
         }
     };
 
-    const handleApplyKunci = () => {
-        if (!kunciResult) return;
-        startTransition(async () => {
-            const result = await applyKunciToModule(moduleId, kunciResult);
-            if (result?.error) {
-                setStatus(result.error);
-                return;
+    const handleApplyKunci = async () => {
+        if (!kunciResult.length || isBusy) return;
+        const sizes = kunciResult.map(entry => new Blob([JSON.stringify(entry)]).size + 1);
+        if (sizes.some(size => size > MAX_SAVE_BYTES)) {
+            setStatus('Gagal menyimpan karena satu entri kunci memuat terlalu banyak gambar. Keluarkan entri itu dari pratinjau.');
+            return;
+        }
+
+        setIsWorking(true);
+        let applied = 0;
+        const skipped: AnswerKeyEntry[] = [];
+        try {
+            let start = 0;
+            while (start < kunciResult.length) {
+                let end = start;
+                let bytes = 0;
+                while (end < sizes.length && bytes + sizes[end] <= MAX_SAVE_BYTES) bytes += sizes[end++];
+                setStatus(`Menerapkan kunci ${start + 1}–${end} dari ${kunciResult.length}…`);
+                const result = await applyKunciToModule(moduleId, kunciResult.slice(start, end));
+                applied += result.applied;
+                result.skippedIndices.forEach(index => skipped.push(kunciResult[start + index]));
+                if (result.error) {
+                    setStatus(`${result.error}${applied ? ` ${applied} kunci sudah tersimpan.` : ''}`);
+                    return;
+                }
+                start = end;
             }
-            setKunciResult(null);
-            setStatus('Kunci jawaban berhasil diterapkan!');
-            router.refresh();
-        });
+            if (applied) setKunciResult(skipped);
+            const skippedNumbers = Array.from(new Set(skipped.map(entry => entry.source_number)));
+            setStatus(`${applied ? `${applied} kunci jawaban diterapkan.` : 'Gagal memasangkan kunci jawaban.'}${skippedNumbers.length
+                ? ` Nomor ${skippedNumbers.join(', ')} masih di pratinjau karena soal dengan tipe yang sesuai belum ada atau nomornya ganda.` : ''}`);
+        } catch {
+            setStatus(`Gagal menyimpan kunci. ${applied ? `${applied} kunci sudah tersimpan. ` : ''}Coba lagi.`);
+        } finally {
+            if (applied) router.refresh();
+            setIsWorking(false);
+        }
     };
 
     const resetPreview = () => {
@@ -289,7 +341,7 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                 ocr_images: images,
             };
         });
-        const requestLimit = 3_500_000;
+        const requestLimit = MAX_SAVE_BYTES;
         const sizes = drafts.map(draft => new Blob([JSON.stringify(draft)]).size + 1);
         if (sizes.some(size => size > requestLimit)) {
             setStatus('Gagal menyimpan karena satu soal memuat terlalu banyak gambar. Keluarkan soal itu dari daftar simpan.');
@@ -593,20 +645,28 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
             )}
 
             {/* Kunci Jawaban Preview */}
-            {kunciResult && Object.keys(kunciResult).length > 0 && !isBusy && (
+            {kunciResult.length > 0 && !isBusy && (
                 <div className="bg-amber-50 border border-amber-200 rounded-[16px] p-4">
-                    <p className="font-bold text-amber-700 mb-2">Preview Kunci Jawaban</p>
-                    <div className="grid grid-cols-5 gap-1.5 mb-4">
-                        {Object.entries(kunciResult).map(([num, ans]) => (
-                            <div key={num} className="bg-white border border-amber-200 rounded-lg p-1.5 text-center">
-                                <p className="text-[10px] text-amber-500 font-bold">No. {num}</p>
-                                <p className="text-sm font-extrabold text-amber-700">{ans}</p>
-                            </div>
-                        ))}
+                    <p className="font-bold text-amber-700 mb-2">Pratinjau kunci jawaban</p>
+                    <div className="grid grid-cols-2 gap-2 mb-4 max-h-96 overflow-y-auto sm:grid-cols-4">
+                        {kunciResult.map(entry => {
+                            const key = answerEntryKey(entry);
+                            return (
+                                <div key={key} className={`min-w-0 bg-white border border-amber-200 rounded-lg p-2 ${'images' in entry ? 'col-span-full' : ''}`}>
+                                    <div className="flex items-center justify-between gap-2 text-amber-700">
+                                        <p className="text-xs font-bold">No. {entry.source_number}{'images' in entry ? ' · Esai' : ` · ${entry.choice}`}</p>
+                                        <button type="button" aria-label={`Keluarkan kunci nomor ${entry.source_number} dari pratinjau`}
+                                            onClick={() => setKunciResult(prev => prev.filter(item => answerEntryKey(item) !== key))}
+                                            className="rounded-full p-1 hover:bg-amber-100"><X className="h-4 w-4" /></button>
+                                    </div>
+                                    {'images' in entry && <QuizImages images={entry.images} field="correct_answer" />}
+                                </div>
+                            );
+                        })}
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={() => setKunciResult(null)} className="flex-1 bg-surface-container text-secondary py-2 rounded-full text-sm font-bold">Batal</button>
-                        <button onClick={handleApplyKunci} disabled={isPending} className="flex-1 bg-amber-500 text-white py-2 rounded-full text-sm font-bold">Terapkan</button>
+                        <button type="button" onClick={() => setKunciResult([])} className="flex-1 bg-surface-container text-secondary py-2 rounded-full text-sm font-bold">Batal</button>
+                        <button type="button" onClick={handleApplyKunci} className="flex-1 bg-amber-500 text-white py-2 rounded-full text-sm font-bold">Terapkan</button>
                     </div>
                 </div>
             )}

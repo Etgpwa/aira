@@ -49,6 +49,8 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 2. Model OCR mengembalikan teks, nomor, rujukan, bacaan, solusi, dan koordinat visual. Browser menyatukan soal yang cocok dari potongan tumpang tindih dan memetakan koordinat ke foto asli sebelum memotong visual sebagai WebP. Hasil semua foto digabung untuk menelusuri rujukan berdasarkan nomor atau nama kasus. Rujukan hilang atau ambigu ditandai di pratinjau.
 3. Saat disimpan, konteks ditempel ke teks soal dan potongan disimpan di kolom `course_quiz_questions.ocr_images`. Bank soal dan CBT menampilkan visual sesuai letaknya. Gambar solusi tersedia di pembahasan. Soal bergambar tetap memakai versi asli di Challenge dan bank soal kuis teks WhatsApp menyaringnya.
 
+Scan Kunci mengembalikan huruf untuk pilihan ganda dan koordinat blok jawaban untuk esai. Browser memotong WebP dari foto asli dan menampilkan pratinjau per nomor. Saat diterapkan, server memasangkan hasil menurut nomor dan jenis soal. Database menambahkan gambar esai secara atomik ke `ocr_images` di posisi `correct_answer`, lalu bank soal, Kisi-kisi, dan review kuis menampilkannya.
+
 ## Alur Challenge Mode (Kuis Kuliah)
 1. `QuizRunner.tsx` mengambil sampel soal MCQ asli; bila mode awal `challenge` (via `?mode=challenge`) atau user menekan tab Challenge, server action `batchParaphraseQuestions` dipanggil (chunk 10 soal ke Gemini).
 2. Tiap hasil divalidasi (kalimat harus berbeda dari asli, opsi lengkap), di-retry 1x bila gagal, lalu posisi opsi diacak dan `correct_answer` dipetakan ulang. Soal gagal tetap tampil asli dengan `is_paraphrased: false`.
@@ -58,6 +60,7 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 
 - Simulasi memuat daftar ID dari seluruh halaman Supabase untuk KB pilihan. Browser mengambil isi soal dalam kelompok kecil agar gambar OCR tidak menumpuk dalam satu respons. Paket acak mengambil hingga 30 pilihan ganda. Paket semua soal menyertakan pilihan ganda dan esai. QuizRunner memakai seluruh isi paket untuk mulai dan ulang. Esai dibandingkan dengan kunci di review, sementara skor dihitung dari pilihan ganda.
 - Kisi-kisi membaca bank soal secara bertahap per halaman dan dapat difilter per mata kuliah. Kunci jawaban ditampilkan bersama visual yang tersimpan. Catatan menggunakan kolom `course_quiz_questions.user_note` yang sama dengan review simulasi, disimpan otomatis setelah jeda mengetik atau saat meninggalkan kolom catatan.
+- Kisi-kisi dan review simulasi menerima lampiran gambar dari file atau clipboard. Browser mengompresnya ke WebP. Penambahan dan penghapusan langsung disimpan ke `user_note_images`; perubahan lampiran dan teks dapat disimpan secara terpisah.
 
 ## Dynamic AI Training & Prompt Injection
 Untuk mempermudah pelatihan AI tanpa mengedit kode:

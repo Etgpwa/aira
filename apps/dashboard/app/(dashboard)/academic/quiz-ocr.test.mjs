@@ -92,8 +92,24 @@ test('mempertahankan pagar kode jika bagian dari teks soal di JSON yang valid', 
 });
 
 test('membaca kunci jawaban dan menolak respons bukan objek', () => {
-    assert.deepEqual(parseOcrAnswerKey('{"1":"a","4":"E","catatan":"abaikan","2":"P"}'), { 1: 'A', 4: 'E' });
+    assert.deepEqual(parseOcrAnswerKey('{"1":"a","4":"E","catatan":"abaikan","2":"P"}'), {
+        choices: { 1: 'A', 4: 'E' }, solutions: [],
+    });
     assert.throws(() => parseOcrAnswerKey('[]'), SyntaxError);
+});
+
+test('membaca kotak seluruh jawaban esai tanpa mengubahnya menjadi teks atau huruf pilihan', () => {
+    const region = { field: 'correct_answer', box: [340, 60, 630, 940] };
+    const solution = { source_number: 3, regions: [region] };
+    const page = parseOcrAnswerKey(JSON.stringify({
+        choices: { 2: 'c', 3: 'penjelasan jawaban' },
+        solutions: [
+            { ...solution, source_number: '3', regions: [region, { ...region, field: 'question_text' }] },
+            { ...solution, source_number: 0 },
+        ],
+    }));
+    assert.deepEqual(page, { choices: { 2: 'C' }, solutions: [solution] });
+    assert.deepEqual(parseOcrAnswerKey(JSON.stringify({ solutions: [solution] })), { choices: {}, solutions: [solution] });
 });
 
 function question(number, extra = {}) {

@@ -127,7 +127,7 @@ export default async function KisiKisiPage({ searchParams }: {
                                         <QuizImages images={question.ocr_images} field="correct_answer" />
                                     </div>
                                 )}
-                                <QuestionNote questionId={question.id} note={question.user_note ?? ''} />
+                                <QuestionNote questionId={question.id} note={question.user_note ?? ''} images={question.user_note_images} />
                             </article>
                         );
                     })}

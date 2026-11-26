@@ -84,9 +84,9 @@ export async function POST(request: Request) {
             },
         });
         return parseResult(response.text ?? '');
-    }, data => 'questions' in data
-        ? !data.questions.length && !data.passages.length && !data.solutions.length
-        : !Object.keys(data).length);
+    }, data => !data.solutions.length && ('questions' in data
+        ? !data.questions.length && !data.passages.length
+        : !Object.keys(data.choices).length));
 
     if ('data' in result) return NextResponse.json({ data: result.data });
 

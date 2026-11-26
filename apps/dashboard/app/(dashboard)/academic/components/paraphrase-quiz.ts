@@ -8,7 +8,7 @@ export async function paraphraseTextQuestions(questions: QuizBankQuestion[]) {
     for (let offset = 0; offset < textQuestions.length; offset += 10) {
         const batch = textQuestions.slice(offset, offset + 10);
         try {
-            const result = await batchParaphraseQuestions(batch);
+            const result = await batchParaphraseQuestions(batch.map(question => ({ ...question, user_note_images: undefined })));
             paraphrased.push(...result.questions);
         } catch {
             paraphrased.push(...batch.map(question => ({ ...question, is_paraphrased: false })));
@@ -16,6 +16,6 @@ export async function paraphraseTextQuestions(questions: QuizBankQuestion[]) {
     }
     let index = 0;
     return questions.map(question => canParaphrase(question)
-        ? paraphrased[index++]
+        ? { ...paraphrased[index++], user_note_images: question.user_note_images }
         : { ...question, is_paraphrased: false });
 }

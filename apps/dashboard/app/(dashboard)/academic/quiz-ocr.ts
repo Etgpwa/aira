@@ -51,6 +51,133 @@ export type OcrPage = {
 
 export const MAX_OCR_PHOTO_BASE64 = 3_500_000;
 export const OCR_CLIENT_TIMEOUT_MS = 36_000;
+export const MAX_PERSONAL_KEY_INPUT = 2048;
+
+export function readPersonalGeminiKeys(value: unknown): string[] | null {
+    if (typeof value !== 'string' || value.length > MAX_PERSONAL_KEY_INPUT) return null;
+    const keys = value.split(',').map(key => key.trim()).filter(Boolean);
+    if (!keys.length || keys.some(key => !/^[A-Za-z0-9_-]{16,256}$/.test(key))) return null;
+    return Array.from(new Set(keys));
+}
+
+export type OcrStrip = { top: number; height: number };
+
+export function planOcrStrips(width: number, height: number): OcrStrip[] {
+    if (height <= 2000 || height < width * 1.9) return [{ top: 0, height }];
+
+    // Keep enough vertical overlap for a question and its choices near a cut.
+    const stripHeight = Math.min(height, Math.max(900, Math.ceil(width * 1.45), Math.ceil(height / 6)));
+    const span = height - stripHeight;
+    const intervals = Math.max(1, Math.ceil(span / (stripHeight * 0.8)));
+    return Array.from({ length: intervals + 1 }, (_, index) => ({
+        top: Math.round(span * index / intervals), height: stripHeight,
+    }));
+}
+
+function rebaseRegions(regions: ImageRegion[], strip: OcrStrip | null, fullHeight: number): ImageRegion[] {
+    if (!strip || strip.height === fullHeight) return regions;
+    return regions.map(region => {
+        const box = region.box;
+        if (!Array.isArray(box) || box.length !== 4 || !box.every(n => Number.isFinite(n) && n >= 0 && n <= 1000)) return region;
+        const [top, left, bottom, right] = box;
+        const translate = (y: number) => Math.round((strip.top * 1000 + y * strip.height) / fullHeight);
+        return { ...region, box: [translate(top), left, translate(bottom), right] };
+    });
+}
+
+function combineRegions(left: ImageRegion[], right: ImageRegion[]): ImageRegion[] {
+    const merged = [...left];
+    const area = ([top, x, bottom, end]: ImageRegion['box']) => Math.max(0, bottom - top) * Math.max(0, end - x);
+    for (const region of right) {
+        if (!Array.isArray(region.box) || region.box.length !== 4) {
+            merged.push(region);
+            continue;
+        }
+        const [top, x, bottom, end] = region.box;
+        const match = merged.findIndex(candidate => {
+            if (candidate.field !== region.field || !Array.isArray(candidate.box) || candidate.box.length !== 4) return false;
+            const [a, b, c, d] = candidate.box;
+            const overlap = Math.max(0, Math.min(bottom, c) - Math.max(top, a))
+                * Math.max(0, Math.min(end, d) - Math.max(x, b));
+            return overlap > 0 && overlap >= 0.7 * Math.min(area(candidate.box), area(region.box));
+        });
+        if (match < 0) merged.push(region);
+        else if (area(region.box) > area(merged[match].box)) merged[match] = region;
+    }
+    return merged;
+}
+
+function sameOcrText(first: string, second: string) {
+    const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
+    const left = normalize(first);
+    const right = normalize(second);
+    return left === right || (Math.min(left.length, right.length) >= 24
+        && (left.includes(right) || right.includes(left)));
+}
+
+export function mergeOcrStrips(
+    scans: readonly { page: OcrPage; strip: OcrStrip | null }[], fullHeight: number,
+): OcrPage {
+    if (scans.length === 1 && (scans[0].strip === null || scans[0].strip.height === fullHeight)) return scans[0].page;
+    const result: OcrPage = { questions: [], passages: [], solutions: [] };
+    const questionStrips: { top: number; bottom: number }[] = [];
+    for (const { page, strip } of scans) {
+        const top = strip?.top ?? 0;
+        const bottom = top + (strip?.height ?? fullHeight);
+        for (const source of page.questions) {
+            const question = { ...source, regions: rebaseRegions(source.regions, strip, fullHeight) };
+            const match = result.questions.findIndex((previous, index) => questionStrips[index].top < top
+                && questionStrips[index].bottom > top
+                && (previous.question_text || (previous.source_number !== null && previous.source_number === question.source_number))
+                && (previous.source_number === question.source_number || previous.source_number === null || question.source_number === null)
+                && sameOcrText(previous.question_text, question.question_text));
+            if (match < 0) {
+                result.questions.push(question);
+                questionStrips.push({ top, bottom });
+                continue;
+            }
+            const previous = result.questions[match];
+            const primary = question.question_text.length > previous.question_text.length ? question : previous;
+            const other = primary === question ? previous : question;
+            const answers = [primary.correct_answer, other.correct_answer].filter(answer => answer !== '?');
+            result.questions[match] = {
+                ...primary,
+                draft_id: previous.draft_id,
+                source_number: primary.source_number ?? other.source_number,
+                option_a: primary.option_a ?? other.option_a,
+                option_b: primary.option_b ?? other.option_b,
+                option_c: primary.option_c ?? other.option_c,
+                option_d: primary.option_d ?? other.option_d,
+                question_type: primary.question_type === 'MCQ' || other.question_type === 'MCQ' ? 'MCQ' : 'ESSAY',
+                correct_answer: new Set(answers).size === 1 ? answers[0] : '?',
+                reference_numbers: Array.from(new Set([...primary.reference_numbers, ...other.reference_numbers])),
+                references_previous: primary.references_previous || other.references_previous,
+                referenced_cases: Array.from(new Set([...(primary.referenced_cases ?? []), ...(other.referenced_cases ?? [])])),
+                case_name: primary.case_name ?? other.case_name,
+                regions: combineRegions(primary.regions, other.regions),
+            };
+            questionStrips[match] = { top, bottom };
+        }
+        for (const source of page.passages) {
+            const passage = { ...source, regions: rebaseRegions(source.regions, strip, fullHeight) };
+            const previous = result.passages.find(item => item.first_number === passage.first_number
+                && item.last_number === passage.last_number && item.case_name === passage.case_name
+                && sameOcrText(item.text, passage.text));
+            if (!previous) result.passages.push(passage);
+            else {
+                if (passage.text.length > previous.text.length) previous.text = passage.text;
+                previous.regions = combineRegions(previous.regions, passage.regions);
+            }
+        }
+        for (const source of page.solutions) {
+            const solution = { ...source, regions: rebaseRegions(source.regions, strip, fullHeight) };
+            const previous = result.solutions.find(item => item.source_number === solution.source_number);
+            if (previous) previous.regions = combineRegions(previous.regions, solution.regions);
+            else result.solutions.push(solution);
+        }
+    }
+    return result;
+}
 
 export type AcademicOcrResults = {
     questions: OcrPage;
@@ -134,7 +261,9 @@ export function parseOcrPage(raw: string, subjectName: string, createId: () => s
                 option_d: readText(q.option_d) || null,
                 correct_answer: readText(q.correct_answer) || '?',
                 source_number: readQuestionNumber(q.source_number),
-                reference_numbers: Array.isArray(q.reference_numbers) ? q.reference_numbers.filter(isQuestionNumber) : [],
+                reference_numbers: Array.isArray(q.reference_numbers)
+                    ? q.reference_numbers.map(readQuestionNumber).filter(isQuestionNumber)
+                    : [],
                 references_previous: q.references_previous === true,
                 case_name: readCaseName(q.case_name) || undefined,
                 referenced_cases: Array.isArray(q.referenced_cases) ? q.referenced_cases.map(readCaseName).filter(Boolean) : [],
@@ -145,9 +274,9 @@ export function parseOcrPage(raw: string, subjectName: string, createId: () => s
         passages: (Array.isArray(passages) ? passages : []).flatMap((value: unknown) => {
             const passage = asRecord(value);
             if (!passage) return [];
-            const first = passage.first_number;
-            const last = passage.last_number;
-            const hasRange = isQuestionNumber(first) && isQuestionNumber(last) && first <= last;
+            const first = readQuestionNumber(passage.first_number);
+            const last = readQuestionNumber(passage.last_number);
+            const hasRange = first !== null && last !== null && first <= last;
             const caseName = readCaseName(passage.case_name);
             if (!hasRange && !caseName) return [];
             return [{
@@ -160,9 +289,10 @@ export function parseOcrPage(raw: string, subjectName: string, createId: () => s
         }),
         solutions: (Array.isArray(solutions) ? solutions : []).flatMap((value: unknown) => {
             const solution = asRecord(value);
-            if (!solution || !isQuestionNumber(solution.source_number)) return [];
+            const number = readQuestionNumber(solution?.source_number);
+            if (!solution || number === null) return [];
             const regions = readRegions(solution.regions).filter(region => region.field === 'correct_answer');
-            return regions.length ? [{ source_number: solution.source_number, regions }] : [];
+            return regions.length ? [{ source_number: number, regions }] : [];
         }),
     };
 }

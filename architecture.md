@@ -30,7 +30,8 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
   - `/academic`: Modul Akademik, Bank Soal, & Progres Silabus Kuliah UT.
   - `/academic/[moduleId]`: Detail KB, Scan Soal & Kunci (Multiple Pick File OCR), dan Bank Soal.
   - `/academic/[moduleId]/quiz`: Simulator Ujian CBT Mandiri (Mode Normal & Mode Challenge AI Paraphrase).
-  - `/academic/event`: Mode Event (Simulasi UTS/UAS 30 Butir Soal Acak Multi-KB dengan Akses Instan ke Mode Challenge).
+  - `/academic/event`: Simulasi UTS/UAS dari KB pilihan, dengan paket hingga 30 pilihan ganda acak atau semua soal.
+  - `/academic/kisi-kisi`: Tampilan baca soal, kunci jawaban, visual, dan catatan penjelasan per soal.
   - `/academic/schedule`: Roadmap Perencanaan Studi & Sesi Perkuliahan Mandiri UT.
   - `/sandbox`: Karen AI Simulator & Pusat Pelatihan Intent Interaktif (Dry Run).
   - `/settings`: Pengaturan Profil, Keamanan & Preferensi.
@@ -39,19 +40,23 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 
 - Pratinjau diurutkan numerik berdasarkan source_number, tanpa mengubah indeks draft untuk edit, eksklusi, konteks, dan solusi. Nomor tidak diketahui di akhir; nomor ganda tetap stabil.
 - Nomor asli disimpan melalui migrasi supabase/add_source_number_to_quiz_questions.sql. Bank soal dan kuis mengurutkan nomor asli; kunci dipasangkan dengan nomor asli, bukan urutan scan. Data lama tanpa nomor tetap memakai urutan created_at dan tidak ditebak ulang.
-- Sidik SHA-256 isi foto mencegah request ulang foto soal yang sudah berhasil selama pratinjau masih terbuka. Foto gagal/kosong boleh dicoba lagi; Batal atau selesai simpan membersihkan daftar sidik foto. OCR tetap per halaman.
+- Sidik SHA-256 isi foto mencegah request ulang ketika sudah ada hasil foto di pratinjau. Foto tanpa hasil boleh dicoba lagi. Batal atau selesai simpan membersihkan daftar sidik foto.
 
 ## Alur Scan Soal Academic
 
-1. Dashboard mengirim salinan tiap foto ke endpoint terautentikasi `POST /api/academic/ocr`. Gemini mengembalikan JSON teks soal, nomor asli, rujukan, bacaan bersama, dan koordinat visual. Parser juga menerima daftar soal format lama atau respons yang tidak menyertakan bagian opsional.
-   Browser membatasi permintaan OCR per foto dan menampilkan jenis kegagalan serta jumlah key yang dicoba. Endpoint mencoba daftar key pada model utama sebelum beralih ke model cadangan, sesuai tenggat masing-masing. Foto lain yang berhasil diproses tetap masuk ke pratinjau.
-2. Browser memotong visual dari foto asli dan mengompres tiap potongan ke WebP (maksimal sekitar 72 KiB). Selama pratinjau terbuka, hasil dari semua foto digabung untuk menelusuri rantai rujukan berdasarkan nomor atau nama kasus, menyertakan bacaan bersama, dan memasangkan gambar solusi dari halaman pembahasan berdasarkan nomor soal tercetak. Rujukan yang hilang atau ambigu ditandai di pratinjau.
+1. Browser memotong screenshot soal yang panjang menjadi bagian vertikal yang tumpang tindih sebelum membuat JPEG maksimal 2.000 px. Tiap bagian dikirim berurutan ke `POST /api/academic/ocr` dan hasil yang berhasil masuk ke pratinjau meski bagian lain gagal. Panel API Gemini memilih key pribadi di sesi tab atau key dashboard untuk request OCR terautentikasi.
+2. Gemini mengembalikan teks, nomor, rujukan, bacaan, solusi, dan koordinat visual. Browser menyatukan soal yang cocok dari potongan tumpang tindih dan memetakan koordinat ke foto asli sebelum memotong visual sebagai WebP. Hasil semua foto digabung untuk menelusuri rujukan berdasarkan nomor atau nama kasus. Rujukan hilang atau ambigu ditandai di pratinjau.
 3. Saat disimpan, konteks ditempel ke teks soal dan potongan disimpan di kolom `course_quiz_questions.ocr_images`. Bank soal dan CBT menampilkan visual sesuai letaknya. Gambar solusi tersedia di pembahasan. Soal bergambar tetap memakai versi asli di Challenge dan bank soal kuis teks WhatsApp menyaringnya.
 
 ## Alur Challenge Mode (Kuis Kuliah)
 1. `QuizRunner.tsx` mengambil sampel soal MCQ asli; bila mode awal `challenge` (via `?mode=challenge`) atau user menekan tab Challenge, server action `batchParaphraseQuestions` dipanggil (chunk 10 soal ke Gemini).
 2. Tiap hasil divalidasi (kalimat harus berbeda dari asli, opsi lengkap), di-retry 1x bila gagal, lalu posisi opsi diacak dan `correct_answer` dipetakan ulang. Soal gagal tetap tampil asli dengan `is_paraphrased: false`.
-3. UI menampilkan peringatan + tombol "Coba lagi" bila ada soal gagal. Mode Event memparafrase di `EventQuizClient.tsx` sebelum masuk QuizRunner.
+3. UI menampilkan peringatan + tombol "Coba lagi" bila ada soal gagal. QuizRunner menyiapkan Challenge untuk kuis KB dan Event. Browser mengirim kelompok pilihan ganda tanpa gambar ke server secara berurutan. Esai dan soal bergambar memakai teks asli.
+
+## Simulasi UAS dan Kisi-kisi
+
+- Simulasi memuat daftar ID dari seluruh halaman Supabase untuk KB pilihan. Browser mengambil isi soal dalam kelompok kecil agar gambar OCR tidak menumpuk dalam satu respons. Paket acak mengambil hingga 30 pilihan ganda. Paket semua soal menyertakan pilihan ganda dan esai. QuizRunner memakai seluruh isi paket untuk mulai dan ulang. Esai dibandingkan dengan kunci di review, sementara skor dihitung dari pilihan ganda.
+- Kisi-kisi membaca bank soal secara bertahap per halaman dan dapat difilter per mata kuliah. Kunci jawaban ditampilkan bersama visual yang tersimpan. Catatan menggunakan kolom `course_quiz_questions.user_note` yang sama dengan review simulasi, disimpan otomatis setelah jeda mengetik atau saat meninggalkan kolom catatan.
 
 ## Dynamic AI Training & Prompt Injection
 Untuk mempermudah pelatihan AI tanpa mengedit kode:

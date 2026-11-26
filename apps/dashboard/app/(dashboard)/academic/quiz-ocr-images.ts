@@ -1,21 +1,26 @@
-import { MAX_IMAGE_BASE64, MAX_OCR_PHOTO_BASE64, type ImageRegion, type QuizImage } from './quiz-ocr';
+import { MAX_IMAGE_BASE64, MAX_OCR_PHOTO_BASE64, planOcrStrips, type ImageRegion, type OcrStrip, type QuizImage } from './quiz-ocr';
 
-function compressOcrPhoto(image: HTMLImageElement) {
+function compressOcrPhoto(image: HTMLImageElement, strip: OcrStrip | null) {
     const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    const { top, height } = strip ?? { top: 0, height: image.naturalHeight };
+    const scale = Math.min(1, 2000 / Math.max(image.naturalWidth, height));
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Foto tidak dapat diproses');
     context.fillStyle = '#fff';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    context.drawImage(image, 0, top, image.naturalWidth, height, 0, 0, canvas.width, canvas.height);
+    const base64 = canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
     if (!base64) throw new Error('Foto tidak dapat dikompresi.');
     return { base64, mimeType: 'image/jpeg' };
 }
 
-export async function prepareOcrFile(file: File) {
+export async function prepareOcrFile(file: File, splitLongPhoto = false): Promise<{
+    photo: HTMLImageElement | null;
+    strips: (OcrStrip | null)[];
+    encode: (strip: OcrStrip | null) => { base64: string; mimeType: string };
+}> {
     const photo = new Image();
     const url = URL.createObjectURL(file);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -27,7 +32,12 @@ export async function prepareOcrFile(file: File) {
                 timer = setTimeout(() => reject(new Error('Browser terlalu lama membuka foto.')), 8_000);
             }),
         ]);
-        return { ...compressOcrPhoto(photo), photo };
+        const strips = splitLongPhoto ? planOcrStrips(photo.naturalWidth, photo.naturalHeight) : [null];
+        if (strips.length === 1) {
+            const compressed = compressOcrPhoto(photo, strips[0]);
+            return { photo, strips, encode: () => compressed };
+        }
+        return { photo, strips, encode: strip => compressOcrPhoto(photo, strip) };
     } catch {
         // Gemini dapat membaca beberapa format asli yang belum bisa dibuka browser.
         if (Math.ceil(file.size / 3) * 4 > MAX_OCR_PHOTO_BASE64) {
@@ -45,7 +55,7 @@ export async function prepareOcrFile(file: File) {
             reader.onerror = reader.onabort = () => reject(new Error('Browser gagal membaca file foto.'));
             reader.readAsDataURL(file);
         });
-        return { base64, mimeType: file.type || 'image/jpeg', photo: null };
+        return { photo: null, strips: [null], encode: () => ({ base64, mimeType: file.type || 'image/jpeg' }) };
     } finally {
         clearTimeout(timer);
         URL.revokeObjectURL(url);

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { MAX_OCR_PHOTO_BASE64, parseOcrAnswerKey, parseOcrPage } from '@/app/(dashboard)/academic/quiz-ocr';
+import { MAX_OCR_PHOTO_BASE64, parseOcrAnswerKey, parseOcrPage, readPersonalGeminiKeys } from '@/app/(dashboard)/academic/quiz-ocr';
 import { QUIZ_OCR_PROMPTS } from '@/app/(dashboard)/academic/quiz-ocr-prompts';
 import { getOcrGeminiKeys, OCR_GEMINI_TIMEOUT_MS, runOcrGeminiRotation } from './gemini-rotation';
 
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         return ocrError('Kiriman foto tidak lengkap. Pilih fotonya kembali.', 400);
     }
 
-    const { kind, base64, mimeType, subjectName } = payload ?? {};
+    const { kind, base64, mimeType, subjectName, personalGeminiKeys } = payload ?? {};
     if (kind !== 'questions' && kind !== 'answer_key') return ocrError('Jenis scan tidak dikenali.', 400);
     if (typeof base64 !== 'string' || !base64 || typeof mimeType !== 'string'
         || !/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) {
@@ -41,10 +41,14 @@ export async function POST(request: Request) {
         return ocrError('File foto terlalu besar. Pilih versi berukuran lebih kecil.', 413);
     }
 
-    const keys = getOcrGeminiKeys(process.env.GEMINI_API_KEYS, process.env.GEMINI_API_KEY);
+    const usesPersonalKeys = personalGeminiKeys !== undefined;
+    const keys = usesPersonalKeys
+        ? readPersonalGeminiKeys(personalGeminiKeys)
+        : getOcrGeminiKeys(process.env.GEMINI_API_KEYS, process.env.GEMINI_API_KEY);
+    if (!keys) return ocrError('Format API key pribadi tidak valid. Pisahkan setiap key dengan koma.', 400);
     if (!keys.length) return ocrError('API key Gemini belum dikonfigurasi di dashboard.', 503);
-    const firstKey = nextKeyIndex % keys.length;
-    nextKeyIndex = (firstKey + 1) % keys.length;
+    const firstKey = usesPersonalKeys ? 0 : nextKeyIndex % keys.length;
+    if (!usesPersonalKeys) nextKeyIndex = (firstKey + 1) % keys.length;
 
     const result = await runOcrGeminiRotation(keys, firstKey, deadline, request.signal, async ({ key, model, signal }) => {
         const ai = new GoogleGenAI({ apiKey: key });
@@ -79,5 +83,6 @@ export async function POST(request: Request) {
         model: ['Model OCR Gemini tidak tersedia untuk key yang dicoba.', 502],
     } as const;
     const [message, status] = errors[result.failure];
-    return ocrError(`${message} OCR mencoba ${result.triedKeys} dari ${keys.length} API key yang dikonfigurasi.`, status);
+    const source = usesPersonalKeys ? 'pribadi' : 'dashboard';
+    return ocrError(`${message} OCR mencoba ${result.triedKeys} dari ${keys.length} API key ${source}.`, status);
 }

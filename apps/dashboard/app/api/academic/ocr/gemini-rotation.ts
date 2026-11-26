@@ -24,7 +24,7 @@ function classifyFailure(error: unknown, timedOut: boolean): { failure: Failure;
     if (timedOut || status === 408 || status === 504 || (
         error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)
     )) return { failure: 'timeout', status };
-    if (status === 401 || status === 403 || (status === 400 && /\bAPI_KEY_(INVALID|SERVICE_BLOCKED)\b/.test(message))) {
+    if (status === 401 || status === 403 || (status === 400 && /\bAPI_KEY_(INVALID|EXPIRED|SERVICE_BLOCKED)\b/.test(message))) {
         return { failure: 'access', status };
     }
     if (status === 429) return { failure: 'quota', status };
@@ -48,6 +48,7 @@ export async function runOcrGeminiRotation<T>(
     for (const model of [PRIMARY_MODEL, FALLBACK_MODEL] as const) {
         const isPrimary = model === PRIMARY_MODEL;
         if (!isPrimary && !useFallback) break;
+        let unavailableCount = 0;
         const modelDeadline = isPrimary ? deadline - FALLBACK_RESERVE_MS : deadline;
         const start = nextKey;
 
@@ -75,6 +76,7 @@ export async function runOcrGeminiRotation<T>(
                 if (failure === 'request') return { failure, triedKeys: tried.size };
                 if (failure === 'access') rejected.add(index);
                 else useFallback = true;
+                if (isPrimary && result.status === 503 && ++unavailableCount >= 2) break;
                 if (failure === 'busy') {
                     const wait = Math.min(250, modelDeadline - Date.now());
                     if (wait > 0) await delay(wait, undefined, { signal: requestSignal }).catch(() => undefined);

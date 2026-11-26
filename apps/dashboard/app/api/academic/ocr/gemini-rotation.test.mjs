@@ -24,6 +24,19 @@ test('enam key dicoba di Flash 3.8 meski lima key lebih dulu terkena kuota', asy
     assert.ok(attempts.every(([, model]) => model === 'gemini-3.8-flash'));
 });
 
+test('dua balasan 503 pada Flash 3.8 mempercepat peralihan ke model cadangan', async () => {
+    const attempts = [];
+    const result = await scan(['a', 'b', 'c', 'd'], 0, async ({ key, model }) => {
+        attempts.push([key, model]);
+        if (model === 'gemini-3.8-flash') throw { status: 503 };
+        return 'hasil cadangan';
+    });
+    assert.deepEqual(result, { data: 'hasil cadangan' });
+    assert.deepEqual(attempts, [
+        ['a', 'gemini-3.8-flash'], ['b', 'gemini-3.8-flash'], ['c', 'gemini-3.6-flash'],
+    ]);
+});
+
 test('melewati key yang ditolak dan memakai model cadangan setelah daftar model utama', async () => {
     const attempts = [];
     const result = await scan(['invalid', 'limited', 'other'], 0, async ({ key, model }) => {

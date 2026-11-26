@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { GoogleGenAI } from '@google/genai';
 import { revalidatePath } from 'next/cache';
 import { MAX_IMAGE_BASE64, QUIZ_FIELDS, sortQuestionsBySourceNumber, type QuizImage } from './quiz-ocr';
+import { EVENT_QUESTION_BATCH_SIZE, EVENT_RANDOM_COUNT, shuffleQuizItems, type EventQuestionSelection, type QuizBankQuestion } from './quiz-bank';
 
 // ────────────────────────────────────────────────────────────────
 // Helper: Rotasi Multi-API Key Gemini untuk PWA (Anti-Limit 429/503)
@@ -409,16 +410,19 @@ export async function saveQuestionNote(questionId: string, userNote: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from('course_quiz_questions')
         .update({ user_note: userNote.trim() })
         .eq('id', questionId)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .select('id')
+        .maybeSingle();
 
     if (error) {
         console.error('Gagal menyimpan user_note:', error);
         throw error;
     }
+    if (!data) throw new Error('Soal tidak tersedia.');
     return { success: true };
 }
 
@@ -550,31 +554,62 @@ export async function batchParaphraseQuestions(
 
 
 // ────────────────────────────────────────────────────────────────
-// Mode Event: Ambil 30 Soal Acak dari Multiple KB
+// Mode Event: tentukan soal ujian, lalu muat isinya per kelompok
 // ────────────────────────────────────────────────────────────────
 
-export async function getEventQuestions(moduleIds: string[]): Promise<any[]> {
+export async function getEventQuestionIds(moduleIds: string[], selection: EventQuestionSelection): Promise<string[]> {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
     if (!moduleIds || moduleIds.length === 0) return [];
 
-    const { data: questions, error } = await supabase
-        .from('course_quiz_questions')
-        .select('*')
-        .in('module_id', moduleIds)
-        .eq('user_id', user.id)
-        .eq('question_type', 'MCQ');
+    const ids: string[] = [];
+    let lastId: string | undefined;
+    while (true) {
+        let query = supabase.from('course_quiz_questions')
+            .select('id').eq('user_id', user.id).in('module_id', moduleIds)
+            .order('id').limit(500);
+        if (selection !== 'all') query = query.eq('question_type', 'MCQ');
+        if (lastId) query = query.gt('id', lastId);
 
-    if (error) {
-        console.error('Gagal mengambil event questions:', error);
-        throw error;
+        const { data, error } = await query;
+        if (error) throw error;
+        if (!data?.length) break;
+        ids.push(...data.map(question => question.id));
+        lastId = data[data.length - 1].id;
     }
+    return selection === 'all' ? ids : shuffleQuizItems(ids).slice(0, EVENT_RANDOM_COUNT);
+}
 
-    if (!questions || questions.length === 0) return [];
+export async function getEventQuestionBatch(ids: string[]): Promise<{ questions: QuizBankQuestion[]; consumed: number }> {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Tidak terautentikasi');
+    if (ids.length === 0 || ids.length > EVENT_QUESTION_BATCH_SIZE) throw new Error('Ukuran kelompok soal tidak valid.');
 
-    const shuffled = [...questions].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, 30);
+    const { data, error } = await supabase.from('course_quiz_questions')
+        .select('*').eq('user_id', user.id).in('id', ids);
+    if (error) throw error;
+
+    // Foto OCR tersimpan bersama soal. Batasi data tiap respons, bukan total soal ujian.
+    const byId = new Map<string, QuizBankQuestion>((data ?? []).map(question => [question.id, question]));
+    const questions: QuizBankQuestion[] = [];
+    let bytes = 0;
+    let consumed = 0;
+    for (const id of ids) {
+        const question = byId.get(id);
+        if (question) {
+            const size = Buffer.byteLength(JSON.stringify(question)) + 1;
+            if (bytes + size > 3_800_000) {
+                if (consumed === 0) throw new Error('Data satu soal terlalu besar untuk dimuat.');
+                break;
+            }
+            questions.push(question);
+            bytes += size;
+        }
+        consumed++;
+    }
+    return { questions, consumed };
 }
 

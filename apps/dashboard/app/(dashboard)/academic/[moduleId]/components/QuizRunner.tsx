@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useRef } from 'react';
 import {
     CheckCircle2,
     XCircle,
@@ -23,17 +23,17 @@ import {
 import { completeModule, saveQuestionNote } from '../../actions';
 import QuizImages, { hasQuizImage } from '../../components/QuizImages';
 import { paraphraseTextQuestions } from '../../components/paraphrase-quiz';
+import { getQuizScore, shuffleQuizItems, type QuizBankQuestion } from '../../quiz-bank';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 interface QuizRunnerProps {
-    questions: any[];
+    questions: QuizBankQuestion[];
     moduleId?: string;
     isAlreadyCompleted?: boolean;
     bestScore?: number | null;
     initialMode?: 'normal' | 'challenge';
     isEventMode?: boolean;
-    eventName?: string;
 }
 
 export default function QuizRunner({
@@ -43,7 +43,6 @@ export default function QuizRunner({
     bestScore = 0,
     initialMode = 'normal',
     isEventMode = false,
-    eventName = 'Simulasi Kuis'
 }: QuizRunnerProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
@@ -56,22 +55,19 @@ export default function QuizRunner({
         initialMode === 'challenge' && isChallengeUnlocked ? 'challenge' : 'normal'
     );
 
-    // Kumpulan Soal Aktif
-    const maxCount = isEventMode ? 30 : 10;
-    const [simQuestions, setSimQuestions] = useState<any[]>(() => {
-        const shuffled = [...questions].sort(() => 0.5 - Math.random());
-        return shuffled.slice(0, maxCount);
-    });
+    // Paket Event telah dipilih di halaman pengaturan.
+    const sampleQuestions = () => shuffleQuizItems(questions).slice(0, isEventMode ? questions.length : 10);
+    const [simQuestions, setSimQuestions] = useState(sampleQuestions);
 
     const [isParaphrasing, setIsParaphrasing] = useState(false);
     const [isRetrying, setIsRetrying] = useState(false);
-    // Soal dari Mode Event Challenge sudah diparafrase sebelum masuk ke komponen ini
     const [hasParaphrased, setHasParaphrased] = useState(() => questions.some((q) => q.is_paraphrased));
+    const startedInitialChallenge = useRef(false);
 
     // Jumlah soal yang gagal diparafrase (hanya relevan di Mode Challenge)
     const failedParaphraseCount =
         currentMode === 'challenge' && hasParaphrased
-            ? simQuestions.filter((q) => !q.is_paraphrased && !q.ocr_images?.length).length
+            ? simQuestions.filter((q) => !q.is_paraphrased && q.question_type !== 'ESSAY' && !q.ocr_images?.length).length
             : 0;
 
     // CBT Navigation & Answer State
@@ -88,9 +84,7 @@ export default function QuizRunner({
 
     // ─── Reset / Ulangi Ujian ──────────────────────────────────────
     const restartQuiz = async () => {
-        // Soal asli (belum diparafrase) sebagai sumber sampel; questions dari props bisa sudah diparafrase (Mode Event)
-        const shuffled = [...questions].sort(() => 0.5 - Math.random());
-        const sample = shuffled.slice(0, maxCount);
+        const sample = sampleQuestions();
         setCurrentIndex(0);
         setUserAnswers({});
         setShowResult(false);
@@ -121,8 +115,8 @@ export default function QuizRunner({
         } else {
             setCurrentMode('normal');
             // Reset ke soal original acak
-            const shuffled = [...questions].sort(() => 0.5 - Math.random());
-            setSimQuestions(shuffled.slice(0, maxCount));
+            setSimQuestions(sampleQuestions());
+            setHasParaphrased(false);
             setCurrentIndex(0);
             setUserAnswers({});
             setShowResult(false);
@@ -130,7 +124,7 @@ export default function QuizRunner({
         }
     };
 
-    const generateChallengeQuestions = async (basePool: any[]) => {
+    const generateChallengeQuestions = async (basePool: QuizBankQuestion[]) => {
         setIsParaphrasing(true);
         try {
             const paraphrased = await paraphraseTextQuestions(basePool);
@@ -153,7 +147,7 @@ export default function QuizRunner({
     // Coba ulang parafrase hanya untuk soal yang gagal (jawaban yang sudah diisi dipertahankan)
     const retryFailedParaphrase = async () => {
         const failedIdx = simQuestions
-            .map((q, i) => (q.is_paraphrased || q.ocr_images?.length ? -1 : i))
+            .map((q, i) => (q.is_paraphrased || q.question_type === 'ESSAY' || q.ocr_images?.length ? -1 : i))
             .filter((i) => i >= 0);
         if (failedIdx.length === 0) return;
 
@@ -186,19 +180,22 @@ export default function QuizRunner({
 
     // Saat masuk langsung via ?mode=challenge, soal belum diparafrase -> trigger otomatis
     useEffect(() => {
-        if (currentMode === 'challenge' && !hasParaphrased) {
+        if (currentMode === 'challenge' && !hasParaphrased && !startedInitialChallenge.current) {
+            startedInitialChallenge.current = true;
             generateChallengeQuestions(simQuestions);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ─── Interaksi Jawaban (Pilih Opsi tanpa Reveal Jawaban) ───────
-    const handleSelectOption = (optionKey: string) => {
+    const handleAnswer = (answer: string) => {
         if (showResult || isReviewMode) return;
-        setUserAnswers((prev) => ({
-            ...prev,
-            [currentIndex]: optionKey
-        }));
+        setUserAnswers(prev => {
+            const next = { ...prev };
+            if (answer.trim()) next[currentIndex] = answer;
+            else delete next[currentIndex];
+            return next;
+        });
     };
 
     // ─── Navigasi Soal ─────────────────────────────────────────────
@@ -232,21 +229,11 @@ export default function QuizRunner({
         setIsReviewMode(false);
     };
 
-    const calculateScore = () => {
-        let correct = 0;
-        simQuestions.forEach((q, idx) => {
-            if (userAnswers[idx] === q.correct_answer) {
-                correct++;
-            }
-        });
-        const finalScore = Math.round((correct / simQuestions.length) * 100);
-        return { correct, finalScore };
-    };
+    const { correct, gradedCount, essayCount, finalScore } = getQuizScore(simQuestions, userAnswers);
 
     // ─── 3 Tombol Utama di Layar Hasil ────────────────────────────
     // 1. Tombol Lanjut: Simpan nilai & kembali
     const handleLanjut = () => {
-        const { finalScore } = calculateScore();
         if (moduleId && !isEventMode) {
             startTransition(async () => {
                 await completeModule(moduleId, finalScore);
@@ -301,7 +288,7 @@ export default function QuizRunner({
                 <div>
                     <h3 className="text-base font-extrabold text-on-surface">Menyiapkan Mode Challenge</h3>
                     <p className="text-xs text-secondary mt-1 max-w-sm leading-relaxed">
-                        Gemini AI sedang memparafrase {simQuestions.length} butir soal secara serentak. Kalimat dirombak agar menguji pemahaman konsep secara mendalam.
+                        Gemini sedang menyiapkan variasi soal pilihan ganda.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-primary font-bold bg-primary/10 px-3 py-1.5 rounded-full">
@@ -312,7 +299,6 @@ export default function QuizRunner({
         );
     }
 
-    const { correct, finalScore } = calculateScore();
     const passed = finalScore >= 70;
     const currentQ = simQuestions[currentIndex];
 
@@ -331,17 +317,22 @@ export default function QuizRunner({
                     {isEventMode ? 'Hasil Simulasi Event' : `Hasil Simulasi Kuis (${currentMode.toUpperCase()})`}
                 </span>
                 <h3 className="text-xl font-extrabold text-on-surface mt-0.5 mb-1">
-                    {passed ? 'Luar Biasa, Kamu Lulus!' : 'Masih Perlu Evaluasi'}
+                    {!gradedCount ? 'Latihan esai selesai' : passed ? 'Luar Biasa, Kamu Lulus!' : 'Masih Perlu Evaluasi'}
                 </h3>
-                <p className="text-5xl font-black text-primary my-3 tracking-tight">{finalScore}</p>
+                {gradedCount > 0 && <p className="text-5xl font-black text-primary my-3 tracking-tight">{finalScore}</p>}
+                {essayCount > 0 && (
+                    <p className="text-xs text-secondary mb-3">
+                        Bandingkan jawaban dari {essayCount} soal esai di Review Jawaban. Nilai otomatis dihitung dari pilihan ganda.
+                    </p>
+                )}
 
-                <div className="flex justify-center items-center gap-3 text-xs font-semibold mb-6">
-                    <span className="px-3 py-1 bg-mint-bg/30 text-mint-fg rounded-full flex items-center gap-1.5">
+                <div className="flex flex-wrap justify-center items-center gap-3 text-xs font-semibold mb-6">
+                    {gradedCount > 0 && <span className="px-3 py-1 bg-mint-bg/30 text-mint-fg rounded-full flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Benar: {correct}
-                    </span>
-                    <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full flex items-center gap-1.5">
-                        <XCircle className="w-3.5 h-3.5" /> Salah: {simQuestions.length - correct}
-                    </span>
+                    </span>}
+                    {gradedCount > 0 && <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full flex items-center gap-1.5">
+                        <XCircle className="w-3.5 h-3.5" /> Salah atau kosong: {gradedCount - correct}
+                    </span>}
                     {unansweredCount > 0 && (
                         <span className="px-3 py-1 bg-surface-container text-secondary rounded-full">
                             Kosong: {unansweredCount}
@@ -399,6 +390,7 @@ export default function QuizRunner({
         if (!currentQ) return null;
         const userAnswer = userAnswers[currentIndex];
         const isCorrect = userAnswer === currentQ.correct_answer;
+        const isEssay = currentQ.question_type === 'ESSAY';
         const currentNote = noteInputs[currentQ.id] !== undefined
             ? noteInputs[currentQ.id]
             : (currentQ.user_note || '');
@@ -418,9 +410,9 @@ export default function QuizRunner({
                             PEMBAHASAN SOAL #{currentIndex + 1}
                         </span>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                            !userAnswer ? 'bg-surface-container text-secondary' : isCorrect ? 'bg-mint-bg/40 text-mint-fg' : 'bg-red-50 text-red-600'
+                            !userAnswer || isEssay ? 'bg-surface-container text-secondary' : isCorrect ? 'bg-mint-bg/40 text-mint-fg' : 'bg-red-50 text-red-600'
                         }`}>
-                            {!userAnswer ? 'Kosong' : isCorrect ? 'Benar' : 'Salah'}
+                            {isEssay ? 'Esai' : !userAnswer ? 'Kosong' : isCorrect ? 'Benar' : 'Salah'}
                         </span>
                     </div>
                 </div>
@@ -434,9 +426,9 @@ export default function QuizRunner({
 
                         let colorClass = 'bg-surface-container text-secondary';
                         if (ans) {
-                            colorClass = qCorrect
-                                ? 'bg-mint-bg/50 text-mint-fg border border-mint-fg/30'
-                                : 'bg-red-50 text-red-600 border border-red-200';
+                            colorClass = q.question_type === 'ESSAY' ? 'bg-primary/10 text-primary'
+                                : qCorrect ? 'bg-mint-bg/50 text-mint-fg border border-mint-fg/30'
+                                    : 'bg-red-50 text-red-600 border border-red-200';
                         }
 
                         return (
@@ -460,6 +452,18 @@ export default function QuizRunner({
                     </p>
                     <QuizImages images={currentQ.ocr_images} field="question_text" />
 
+                    {isEssay && (
+                        <div className="grid gap-3 text-sm">
+                            <div><p className="font-bold">Jawabanmu</p><p className="whitespace-pre-wrap">{userAnswer || 'Kosong'}</p></div>
+                            <div>
+                                <p className="font-bold">Kunci jawaban</p>
+                                <p className="whitespace-pre-wrap">
+                                    {currentQ.correct_answer && currentQ.correct_answer !== '?' ? currentQ.correct_answer
+                                        : hasQuizImage(currentQ.ocr_images, 'correct_answer') ? '' : 'Kunci belum tersedia.'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     <div className="flex flex-col gap-2">
                         {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
                             const field = `option_${optKey.toLowerCase() as 'a' | 'b' | 'c' | 'd'}` as const;
@@ -576,7 +580,6 @@ export default function QuizRunner({
     if (!currentQ) return null;
 
     const progressPct = ((currentIndex + 1) / simQuestions.length) * 100;
-    const isAnsweredCurrent = userAnswers[currentIndex] !== undefined;
 
     return (
         <div className="flex flex-col gap-3">
@@ -714,7 +717,14 @@ export default function QuizRunner({
 
                 {/* Daftar Pilihan Opsi A, B, C, D */}
                 <div className="flex flex-col gap-2">
-                    {(['A', 'B', 'C', 'D'] as const).map((optKey) => {
+                    {currentQ.question_type === 'ESSAY' ? (
+                        <label className="grid gap-2 text-sm font-semibold text-on-surface">
+                            Jawaban esai
+                            <textarea value={userAnswers[currentIndex] ?? ''} rows={4} onChange={event => handleAnswer(event.target.value)}
+                                className="w-full rounded-xl border border-surface-variant bg-surface-bright p-3 font-normal"
+                                placeholder="Tulis jawabanmu" />
+                        </label>
+                    ) : (['A', 'B', 'C', 'D'] as const).map((optKey) => {
                         const field = `option_${optKey.toLowerCase() as 'a' | 'b' | 'c' | 'd'}` as const;
                         const optText = currentQ[field];
                         if (!optText && !hasQuizImage(currentQ.ocr_images, field)) return null;
@@ -725,7 +735,7 @@ export default function QuizRunner({
                             <button
                                 key={optKey}
                                 type="button"
-                                onClick={() => handleSelectOption(optKey)}
+                                onClick={() => handleAnswer(optKey)}
                                 className={`flex items-center gap-3 p-3 sm:p-3.5 border rounded-xl text-xs sm:text-sm transition-all text-left w-full cursor-pointer active:scale-[0.99] ${
                                     isSelected
                                         ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
@@ -828,7 +838,7 @@ export default function QuizRunner({
                         </div>
 
                         <p className="text-xs text-secondary leading-relaxed">
-                            Apakah kamu yakin ingin menyelesaikan ujian sekarang? Soal yang kosong akan dihitung sebagai jawaban salah.
+                            Pilihan ganda yang kosong dihitung sebagai jawaban salah.
                         </p>
 
                         <div className="flex gap-2">

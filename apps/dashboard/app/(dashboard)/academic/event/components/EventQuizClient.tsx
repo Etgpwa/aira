@@ -9,23 +9,22 @@ import {
     Play,
     Loader2,
     BookOpen,
-    AlertCircle,
     Trophy,
     CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
 import QuizRunner from '../../[moduleId]/components/QuizRunner';
-import { getEventQuestions } from '../../actions';
-import { paraphraseTextQuestions } from '../../components/paraphrase-quiz';
+import { getEventQuestionBatch, getEventQuestionIds } from '../../actions';
+import { EVENT_QUESTION_BATCH_SIZE, EVENT_RANDOM_COUNT, type EventQuestionSelection, type QuizBankQuestion } from '../../quiz-bank';
 
 interface ModuleItem {
     id: string;
     subject_name: string;
     module_title: string;
     kb_title: string;
-    best_score: number | null;
     is_completed: boolean;
-    course_quiz_questions?: { count: number }[];
+    questions: { count: number }[];
+    mcq_questions: { count: number }[];
 }
 
 interface EventQuizClientProps {
@@ -37,21 +36,25 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
     const subjects = Array.from(new Set(modules.map((m) => m.subject_name))).filter(Boolean);
 
     const [selectedSubject, setSelectedSubject] = useState<string>(subjects[0] || '');
-    const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
+    const [selectedModuleIds, setSelectedModuleIds] = useState(() => modules
+        .filter(module => module.subject_name === subjects[0]).map(module => module.id));
     const [chosenMode, setChosenMode] = useState<'normal' | 'challenge'>('normal');
+    const [selection, setSelection] = useState<EventQuestionSelection>('random');
 
     // State saat proses loading & menjalankan ujian
     const [isLoading, setIsLoading] = useState(false);
     const [loadingStep, setLoadingStep] = useState<string>('');
-    const [activeExamQuestions, setActiveExamQuestions] = useState<any[] | null>(null);
+    const [activeExamQuestions, setActiveExamQuestions] = useState<QuizBankQuestion[] | null>(null);
+    const [loadError, setLoadError] = useState('');
 
     // Filter KB berdasarkan matkul yang aktif dipilih
     const subjectModules = modules.filter((m) => m.subject_name === selectedSubject);
 
-    // Hitung total bank soal MCQ yang tersedia dari KB terpilih
+    const questionCount = (module: ModuleItem) => (selection === 'all' ? module.questions : module.mcq_questions)?.[0]?.count ?? 0;
     const selectedTotalQuestions = subjectModules
         .filter((m) => selectedModuleIds.includes(m.id))
-        .reduce((sum, m) => sum + (m.course_quiz_questions?.[0]?.count ?? 0), 0);
+        .reduce((sum, m) => sum + questionCount(m), 0);
+    const examSize = selection === 'all' ? selectedTotalQuestions : Math.min(EVENT_RANDOM_COUNT, selectedTotalQuestions);
 
     const handleSelectAll = () => {
         setSelectedModuleIds(subjectModules.map((m) => m.id));
@@ -69,29 +72,30 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
     // Mulai Ujian Event
     const handleStartEvent = async () => {
-        if (selectedModuleIds.length === 0 || selectedTotalQuestions === 0) return;
+        if (selectedModuleIds.length === 0 || examSize === 0 || isLoading) return;
 
         setIsLoading(true);
-        setLoadingStep('Mengambil soal pilihan ganda acak dari KB terpilih...');
+        setLoadError('');
+        setLoadingStep('Menyiapkan daftar soal…');
 
         try {
-            const rawQuestions = await getEventQuestions(selectedModuleIds);
-            if (!rawQuestions || rawQuestions.length === 0) {
-                alert('Tidak ada butir soal pilihan ganda (MCQ) yang ditemukan pada KB-KB yang dipilih.');
-                setIsLoading(false);
-                return;
+            const ids = await getEventQuestionIds(selectedModuleIds, selection);
+            const questions: QuizBankQuestion[] = [];
+            for (let offset = 0; offset < ids.length;) {
+                const batch = await getEventQuestionBatch(ids.slice(offset, offset + EVENT_QUESTION_BATCH_SIZE));
+                questions.push(...batch.questions);
+                offset += batch.consumed;
+                setLoadingStep(`Memuat soal ${offset} dari ${ids.length}…`);
             }
 
-            if (chosenMode === 'challenge') {
-                setLoadingStep(`Memparafrase ${rawQuestions.length} butir soal dengan Gemini AI...`);
-                const paraphrased = await paraphraseTextQuestions(rawQuestions);
-                setActiveExamQuestions(paraphrased);
-            } else {
-                setActiveExamQuestions(rawQuestions);
+            if (questions.length === 0) {
+                setLoadError('Belum ada soal yang tersedia di KB terpilih untuk paket ini.');
+                return;
             }
+            setActiveExamQuestions(questions);
         } catch (err) {
             console.error('Gagal memulai ujian event:', err);
-            alert('Terjadi kesalahan saat memuat soal. Silakan coba lagi.');
+            setLoadError('Gagal memuat soal. Coba lagi.');
         } finally {
             setIsLoading(false);
             setLoadingStep('');
@@ -122,17 +126,12 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full text-xs font-bold shrink-0">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>{chosenMode === 'challenge' ? 'Challenge Mode' : 'Normal Mode'}</span>
-                    </div>
                 </header>
 
                 <main className="w-full max-w-2xl mx-auto px-3.5 sm:px-4 pt-3 pb-8 flex-1">
                     <QuizRunner
                         questions={activeExamQuestions}
                         isEventMode={true}
-                        eventName={`Simulasi UTS - ${selectedSubject}`}
                         initialMode={chosenMode}
                     />
                 </main>
@@ -142,7 +141,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
     // ─── Tampilan 2: Form Konfigurasi Simulasi Event ───────────────
     return (
-        <div className="min-h-screen bg-surface px-3 sm:px-4 py-4 max-w-3xl mx-auto space-y-6 pb-20">
+        <fieldset disabled={isLoading} className="min-h-screen min-w-0 bg-surface px-3 sm:px-4 py-4 max-w-3xl mx-auto space-y-6 pb-20">
             {/* Header */}
             <div className="flex items-center gap-3">
                 <Link
@@ -157,7 +156,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                         Mode Event: Simulasi UTS / UAS
                     </h1>
                     <p className="text-xs text-secondary mt-0.5">
-                        Kuis akbar 30 soal acak dari kombinasi beberapa KB pilihanmu
+                        Pilih paket acak atau gunakan seluruh bank soal dari KB terpilih.
                     </p>
                 </div>
             </div>
@@ -177,7 +176,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                                 type="button"
                                 onClick={() => {
                                     setSelectedSubject(subj);
-                                    setSelectedModuleIds([]);
+                                    setSelectedModuleIds(modules.filter(module => module.subject_name === subj).map(module => module.id));
                                 }}
                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                                     selectedSubject === subj
@@ -210,7 +209,7 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                             onClick={handleSelectAll}
                             className="text-xs font-bold text-primary hover:underline"
                         >
-                            Pilih Semua
+                            Pilih Semua KB
                         </button>
                         <span className="text-secondary text-xs">•</span>
                         <button
@@ -231,13 +230,15 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                     <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-1">
                         {subjectModules.map((m) => {
                             const isChecked = selectedModuleIds.includes(m.id);
-                            const qCount = m.course_quiz_questions?.[0]?.count ?? 0;
+                            const qCount = questionCount(m);
 
                             return (
-                                <div
+                                <button
                                     key={m.id}
+                                    type="button"
+                                    aria-pressed={isChecked}
                                     onClick={() => toggleModule(m.id)}
-                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${
                                         isChecked
                                             ? 'border-primary bg-primary/10 text-on-surface'
                                             : 'border-surface-variant bg-surface hover:border-primary/30 text-secondary'
@@ -261,13 +262,13 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
                                     <div className="flex items-center gap-2 shrink-0 ml-2">
                                         <span className="text-[11px] font-bold bg-surface-container px-2 py-0.5 rounded-full text-secondary">
-                                            {qCount} Soal MCQ
+                                            {qCount} soal{selection === 'random' ? ' pilihan ganda' : ''}
                                         </span>
                                         {m.is_completed && (
                                             <CheckCircle2 className="w-4 h-4 text-mint-fg shrink-0" />
                                         )}
                                     </div>
-                                </div>
+                                </button>
                             );
                         })}
                     </div>
@@ -275,24 +276,39 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
 
                 {/* Ringkasan Seleksi Soal */}
                 <div className="bg-surface-container/60 border border-surface-variant rounded-xl p-3 flex items-center justify-between text-xs">
-                    <span className="text-secondary font-medium">Total Soal Terpilih:</span>
+                    <span className="text-secondary font-medium">Soal tersedia</span>
                     <span className="font-extrabold text-on-surface">
                         {selectedTotalQuestions} Soal dari {selectedModuleIds.length} KB
                     </span>
                 </div>
             </section>
 
-            {/* Langkah 3: Pilih Mode Ujian (Normal vs Challenge) */}
+            <section className="bg-surface-bright border border-surface-variant rounded-[20px] p-4 sm:p-5 shadow-xs">
+                <h2 className="text-xs font-bold text-secondary uppercase tracking-wider mb-3">Jumlah soal</h2>
+                <div className="grid grid-cols-2 gap-2">
+                    {([
+                        ['random', `Maks. ${EVENT_RANDOM_COUNT} acak`],
+                        ['all', 'Semua soal'],
+                    ] as const).map(([value, label]) => (
+                        <button key={value} type="button" aria-pressed={selection === value} onClick={() => setSelection(value)}
+                            className={`rounded-xl border px-3 py-2.5 text-sm font-bold ${selection === value ? 'border-primary bg-primary/10 text-primary' : 'border-surface-variant text-on-surface'}`}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </section>
+
+            {/* Mode ujian */}
             <section className="bg-surface-bright border border-surface-variant rounded-[20px] p-4 sm:p-5 shadow-xs flex flex-col gap-3">
                 <label className="text-xs font-bold text-secondary uppercase tracking-wider">
-                    Langkah 3 · Pilih Mode Ujian
+                    Mode Ujian
                 </label>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Opsi 1: Mode Normal */}
-                    <div
+                    <button type="button" aria-pressed={chosenMode === 'normal'}
                         onClick={() => setChosenMode('normal')}
-                        className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                        className={`p-3.5 rounded-2xl border-2 transition-all text-left ${
                             chosenMode === 'normal'
                                 ? 'border-primary bg-primary/10 shadow-xs'
                                 : 'border-surface-variant bg-surface hover:border-primary/30'
@@ -303,14 +319,14 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                             <span className="text-sm font-extrabold text-on-surface">Mode Normal</span>
                         </div>
                         <p className="text-xs text-secondary leading-relaxed">
-                            Murni soal asli hasil scan bank soal. 30 butir soal diacak langsung dari KB terpilih.
+                            Kerjakan soal asli dari bank soal KB terpilih.
                         </p>
-                    </div>
+                    </button>
 
                     {/* Opsi 2: Mode Challenge */}
-                    <div
+                    <button type="button" aria-pressed={chosenMode === 'challenge'}
                         onClick={() => setChosenMode('challenge')}
-                        className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                        className={`p-3.5 rounded-2xl border-2 transition-all text-left ${
                             chosenMode === 'challenge'
                                 ? 'border-amber-500 bg-amber-500/10 shadow-xs'
                                 : 'border-surface-variant bg-surface hover:border-amber-500/30'
@@ -326,17 +342,18 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                             </span>
                         </div>
                         <p className="text-xs text-secondary leading-relaxed">
-                            30 butir soal diparafrase serentak oleh AI tepat sebelum ujian dimulai untuk menguji konsep mendalam.
+                            AI memparafrase pilihan ganda tanpa gambar sebelum ujian.
                         </p>
-                    </div>
+                    </button>
                 </div>
             </section>
 
             {/* Tombol Eksekusi Mulai Ujian */}
             <div className="pt-2">
+                {loadError && <p role="alert" className="mb-2 text-sm text-red-600">{loadError}</p>}
                 <button
                     type="button"
-                    disabled={selectedModuleIds.length === 0 || selectedTotalQuestions === 0 || isLoading}
+                    disabled={examSize === 0 || isLoading}
                     onClick={handleStartEvent}
                     className="w-full bg-primary hover:bg-primary-container disabled:opacity-50 text-on-primary py-3.5 rounded-full font-extrabold text-sm flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(56,74,216,0.3)] transition-all active:scale-[0.99]"
                 >
@@ -349,12 +366,12 @@ export default function EventQuizClient({ modules }: EventQuizClientProps) {
                         <>
                             <Play className="w-4 h-4 fill-on-primary" />
                             <span>
-                                Mulai Ujian Event (Maks. 30 Soal Acak)
+                                Mulai Simulasi · {examSize} soal
                             </span>
                         </>
                     )}
                 </button>
             </div>
-        </div>
+        </fieldset>
     );
 }

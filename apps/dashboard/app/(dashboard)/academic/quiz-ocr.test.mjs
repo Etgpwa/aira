@@ -1,7 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseOcrAnswerKey, parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto } from './quiz-ocr.ts';
+import {
+    mergeOcrStrips, planOcrStrips, readPersonalGeminiKeys, parseOcrAnswerKey,
+    parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto,
+} from './quiz-ocr.ts';
 
+test('merencanakan potongan foto panjang yang menutup gambar dan saling tumpang tindih', () => {
+    assert.deepEqual(planOcrStrips(1200, 1600), [{ top: 0, height: 1600 }]);
+    const strips = planOcrStrips(1200, 5000);
+    assert.equal(strips[0].top, 0);
+    assert.equal(strips.at(-1).top + strips.at(-1).height, 5000);
+    assert.ok(strips.length > 1 && strips.every(strip => strip.height < 2000));
+    assert.ok(strips.slice(1).every((strip, index) => strip.top < strips[index].top + strips[index].height));
+});
+
+test('menyatukan soal tumpang tindih dan memetakan grafik ke foto asli', () => {
+    const first = parseOcrPage(JSON.stringify({
+        questions: [{ source_number: 4, question_text: 'Perhatikan grafik jumlah buku berikut.' }],
+    }), '', () => 'first');
+    const next = parseOcrPage(JSON.stringify({
+        questions: [
+            { source_number: 4, question_text: 'Perhatikan grafik jumlah buku berikut. Hitung total buku.', regions: [{ field: 'question_text', box: [100, 200, 400, 800] }] },
+            { source_number: 5, question_text: 'Berdasarkan grafik pada soal 4, pilih kategori terbesar.', reference_numbers: ['4'] },
+        ],
+    }), '', () => 'next');
+    const result = mergeOcrStrips([
+        { page: first, strip: { top: 0, height: 1500 } },
+        { page: next, strip: { top: 1000, height: 1500 } },
+    ], 2500);
+    assert.deepEqual(result.questions.map(item => item.source_number), [4, 5]);
+    assert.equal(result.questions[0].draft_id, 'first');
+    assert.match(result.questions[0].question_text, /Hitung total buku/);
+    assert.deepEqual(result.questions[0].regions[0].box, [460, 200, 640, 800]);
+    assert.deepEqual(result.questions[1].reference_numbers, [4]);
+});
+
+test('menerima key pribadi yang dipisah koma dan menolak format lain', () => {
+    const first = 'example_private_key_1';
+    const second = 'example-private-key-2';
+    assert.deepEqual(readPersonalGeminiKeys(` ${first}, ${second}, ${first} `), [first, second]);
+    assert.equal(readPersonalGeminiKeys([first]), null);
+    assert.equal(readPersonalGeminiKeys(''), null);
+    assert.equal(readPersonalGeminiKeys(`${first},https://example.com/`), null);
+});
 test('menerima daftar soal format lama dan halaman dengan bagian opsional yang hilang', () => {
     const raw = '[{"question_text":"Pilih jenis grafik.","question_type":"MCQ","option_a":"Batang"}]';
     const original = parseOcrPage(`Hasil OCR\n\`\`\`json\n${raw}\n\`\`\`\nSelesai`, 'Statistika', () => 'draft');

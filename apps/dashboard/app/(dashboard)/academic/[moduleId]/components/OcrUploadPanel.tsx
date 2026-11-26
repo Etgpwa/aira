@@ -1,19 +1,20 @@
 'use client';
 
-import { useMemo, useState, useTransition, useRef } from 'react';
+import { useEffect, useMemo, useState, useTransition, useRef } from 'react';
 import { Camera, Key, Plus, Loader2, Check, X, ChevronDown, ChevronUp, FolderOpen, Image as ImageIcon } from 'lucide-react';
 import { applyKunciToModule, saveQuestions } from '../../actions';
 import ManualQuizInput from '../../components/ManualQuizInput';
 import { useRouter } from 'next/navigation';
 import QuizImages from '../../components/QuizImages';
 import {
-    MAX_OCR_PHOTO_BASE64, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto,
-    type AcademicOcrResults, type ImageRegion, type OcrPassage, type OcrQuestion, type OcrSolution,
+    MAX_OCR_PHOTO_BASE64, MAX_PERSONAL_KEY_INPUT, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS,
+    resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, mergeOcrStrips, readPersonalGeminiKeys,
+    type AcademicOcrResults, type ImageRegion, type OcrPage, type OcrPassage, type OcrQuestion, type OcrSolution, type OcrStrip,
 } from '../../quiz-ocr';
 import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
 
 async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
-    kind: Kind, base64: string, mimeType: string, subjectName?: string,
+    kind: Kind, base64: string, mimeType: string, personalGeminiKeys?: string, subjectName?: string,
 ): Promise<AcademicOcrResults[Kind]> {
     if (base64.length > MAX_OCR_PHOTO_BASE64) {
         throw new Error('File foto terlalu besar. Pilih versi berukuran lebih kecil.');
@@ -25,7 +26,7 @@ async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
         const response = await fetch('/api/academic/ocr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ kind, base64, mimeType, subjectName }),
+            body: JSON.stringify({ kind, base64, mimeType, subjectName, personalGeminiKeys }),
             signal: controller.signal,
         }).catch(() => {
             throw new Error(controller.signal.aborted ? timeoutMessage : 'Koneksi ke server OCR gagal. Coba lagi.');
@@ -44,9 +45,10 @@ async function requestAcademicOcr<Kind extends keyof AcademicOcrResults>(
 interface OcrUploadPanelProps {
     moduleId: string;
     subjectName: string;
+    userId: string;
 }
 
-export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanelProps) {
+export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUploadPanelProps) {
     const [activePanel, setActivePanel] = useState<'none' | 'soal' | 'kunci' | 'manual'>('none');
     const [activePickerModal, setActivePickerModal] = useState<'soal' | 'kunci' | null>(null);
     const [isPending, startTransition] = useTransition();
@@ -64,10 +66,34 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
         .filter(number => !previewQuestions.some(question => question.source_number === number));
     const [kunciResult, setKunciResult] = useState<Record<number, string> | null>(null);
     const [status, setStatus] = useState<string>('');
+    const [personalKeys, setPersonalKeys] = useState<string>();
+    const [keyDraft, setKeyDraft] = useState('');
+    const [keyError, setKeyError] = useState('');
+    const keyStorage = `academic-ocr-gemini:${userId}`;
     const router = useRouter();
 
-    const processedQuestionPhotos = useRef(new Set<string>());
+    useEffect(() => {
+        try {
+            const stored = readPersonalGeminiKeys(sessionStorage.getItem(keyStorage));
+            setPersonalKeys(stored?.join(','));
+        } catch {
+            setPersonalKeys(undefined);
+        }
+    }, [keyStorage]);
 
+    const selectGeminiKeys = (keys?: string) => {
+        setPersonalKeys(keys);
+        setKeyDraft('');
+        setKeyError('');
+        try {
+            if (keys) sessionStorage.setItem(keyStorage, keys);
+            else sessionStorage.removeItem(keyStorage);
+        } catch {
+            // Pilihan masih dapat dipakai di halaman ini jika browser memblokir sessionStorage.
+        }
+    };
+
+    const processedQuestionPhotos = useRef(new Set<string>());
     const cameraSoalInputRef = useRef<HTMLInputElement>(null);
     const folderSoalInputRef = useRef<HTMLInputElement>(null);
     const cameraKunciInputRef = useRef<HTMLInputElement>(null);
@@ -87,14 +113,27 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             for (let index = 0; index < files.length; index++) {
                 try {
                     setStatus(`Menyiapkan foto ${index + 1} dari ${files.length}…`);
-                    const fingerprint = await fingerprintOcrPhoto(files[index]);
+                    const fingerprint = await fingerprintOcrPhoto(files[index]).catch(() => null);
                     if (fingerprint && processedQuestionPhotos.current.has(fingerprint)) {
                         skippedPhotos++;
                         continue;
                     }
-                    const { base64, mimeType, photo } = await prepareOcrFile(files[index]);
-                    setStatus(`Menganalisis foto ${index + 1} dari ${files.length}…`);
-                    const page = await requestAcademicOcr('questions', base64, mimeType, subjectName);
+                    const { photo, strips, encode } = await prepareOcrFile(files[index], true);
+                    const scans: { page: OcrPage; strip: OcrStrip | null }[] = [];
+                    for (let part = 0; part < strips.length; part++) {
+                        const strip = strips[part];
+                        const label = strips.length > 1 ? `foto ${index + 1}, bagian ${part + 1} dari ${strips.length}` : `foto ${index + 1} dari ${files.length}`;
+                        setStatus(`Menganalisis ${label}…`);
+                        try {
+                            const { base64, mimeType } = encode(strip);
+                            const page = await requestAcademicOcr('questions', base64, mimeType, personalKeys, subjectName);
+                            scans.push({ page, strip });
+                        } catch (error) {
+                            failures.push(`${label}. ${error instanceof Error ? error.message : 'Ulangi scan bagian ini.'}`);
+                        }
+                    }
+                    if (!scans.length) continue;
+                    const page = mergeOcrStrips(scans, photo?.naturalHeight ?? 1);
                     setStatus(`Menyiapkan pratinjau foto ${index + 1} dari ${files.length}…`);
                     const extractImages = (regions: ImageRegion[]) => {
                         try {
@@ -122,7 +161,8 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                 }
             }
 
-            const warning = (failures.length ? ` ${failures.length} foto gagal. ${failures[0]}` : '')
+            const warning = (failures.length ? ` ${failures.length} bagian gagal. ${failures[0]}` : '')
+                + (failures.length && allExtracted.length ? ' Pindai ulang bagian yang gagal sebagai foto terpisah.' : '')
                 + (skippedPhotos ? ` ${skippedPhotos} foto sudah dipindai; tidak mengirim request ulang.` : '');
             if (allExtracted.length || allPassages.length || allSolutions.length) {
                 setPreviewQuestions(prev => [...prev, ...allExtracted]);
@@ -150,9 +190,10 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
             for (let index = 0; index < files.length; index++) {
                 try {
                     setStatus(`Menyiapkan foto kunci ${index + 1} dari ${files.length}…`);
-                    const { base64, mimeType } = await prepareOcrFile(files[index]);
+                    const { encode } = await prepareOcrFile(files[index]);
+                    const { base64, mimeType } = encode(null);
                     setStatus(`Membaca kunci jawaban foto ${index + 1} dari ${files.length}…`);
-                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType));
+                    Object.assign(mergedKunci, await requestAcademicOcr('answer_key', base64, mimeType, personalKeys));
                 } catch (error) {
                     failures.push(`Foto ${index + 1}. ${error instanceof Error ? error.message : 'Ulangi scan foto ini.'}`);
                     console.error(`Gagal scan kunci foto ke-${index + 1}:`, error);
@@ -329,6 +370,61 @@ export default function OcrUploadPanel({ moduleId, subjectName }: OcrUploadPanel
                     <span className="text-[11px] font-bold text-on-surface text-center leading-tight">Manual</span>
                 </button>
             </div>
+
+            <details className="rounded-[14px] border border-surface-variant bg-surface-bright px-3 py-2.5">
+                <summary className="cursor-pointer text-sm font-semibold text-on-surface">
+                    API Gemini <span className="ml-1 text-xs font-normal text-secondary">
+                        {personalKeys ? `${personalKeys.split(',').length} key pribadi aktif` : 'Key dashboard'}
+                    </span>
+                </summary>
+                <form
+                    className="mt-3 grid gap-2"
+                    onSubmit={event => {
+                        event.preventDefault();
+                        if (isBusy) return;
+                        const keys = readPersonalGeminiKeys(keyDraft);
+                        if (!keys) {
+                            setKeyError('Masukkan API key Gemini. Pisahkan beberapa key dengan koma.');
+                            return;
+                        }
+                        selectGeminiKeys(keys.join(','));
+                    }}
+                >
+                    <label className="text-xs font-semibold text-on-surface" htmlFor="academic-gemini-key">API key pribadi</label>
+                    <input
+                        id="academic-gemini-key"
+                        type="password"
+                        value={keyDraft}
+                        maxLength={MAX_PERSONAL_KEY_INPUT}
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        disabled={isBusy}
+                        onChange={event => {
+                            setKeyDraft(event.target.value);
+                            setKeyError('');
+                        }}
+                        className="min-w-0 rounded-lg border border-surface-variant bg-surface px-3 py-2 text-sm text-on-surface"
+                        aria-describedby="academic-gemini-key-help"
+                        aria-invalid={Boolean(keyError)}
+                    />
+                    <p id="academic-gemini-key-help" className="text-xs text-secondary">
+                        Pisahkan beberapa key dengan koma. Key aktif untuk Scan Soal dan Scan Kunci di tab ini.
+                        {' '}<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="font-semibold text-primary underline">Ambil key di Google AI Studio</a>
+                    </p>
+                    {keyError && <p role="alert" className="text-xs font-medium text-red-600">{keyError}</p>}
+                    <div className="flex flex-wrap gap-2">
+                        <button type="submit" disabled={isBusy} className="rounded-full bg-primary px-3 py-2 text-xs font-bold text-on-primary disabled:opacity-50">
+                            Pakai key pribadi
+                        </button>
+                        {personalKeys && (
+                            <button type="button" onClick={() => selectGeminiKeys()} disabled={isBusy} className="rounded-full bg-surface-container px-3 py-2 text-xs font-bold text-on-surface disabled:opacity-50">
+                                Kembali ke key dashboard
+                            </button>
+                        )}
+                    </div>
+                </form>
+            </details>
 
             {/* Modal Pilih Sumber Gambar (Kamera vs Folder/Galeri) */}
             {activePickerModal && (

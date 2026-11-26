@@ -72,6 +72,13 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 - Regresi diuji untuk urutan 8, 10, 2, 1; nomor ganda/kosong; indeks edit/eksklusi dan pasangan konteks/solusi; parser nomor string; sidik isi foto.
 - Migrasi SQL disiapkan untuk dijalankan di Supabase; data lama tanpa nomor asli tidak dinomori ulang otomatis.
 
+| **Academic** | **OCR Foto Panjang dan Key Gemini Pribadi**<br>Scan Soal membagi screenshot panjang sebelum kompresi, menyatukan soal yang berulang, dan memotong visual dari koordinat foto asli. Scan Soal dan Scan Kunci bisa memakai key sendiri dari panel di detail KB. Dua balasan HTTP 503 mempercepat perpindahan model. | ✅ Selesai |
+
+## Simulasi UAS dan Kisi-kisi
+
+- Paket **Semua soal** memuat seluruh bank soal dari KB terpilih, termasuk esai dengan review mandiri.
+- **Kisi-kisi** menampilkan soal dan kunci jawaban per mata kuliah. Catatan penjelasan tersimpan otomatis melalui catatan per soal yang sudah ada.
+
 ## Fase Selanjutnya (Future Scope / Backlog)
 
 Beberapa area pengembangan yang dapat dieksplorasi di tahap mendatang:

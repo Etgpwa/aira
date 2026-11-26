@@ -143,14 +143,9 @@ export default async function AcademicPage() {
               <Trophy className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <p className="font-extrabold text-sm text-on-surface">Simulasi UTS / UAS</p>
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-white">
-                  30 Soal
-                </span>
-              </div>
+              <p className="font-extrabold text-sm text-on-surface">Simulasi UTS / UAS</p>
               <p className="text-xs text-secondary mt-0.5">
-                Kuis akbar gabungan KB pilihan · Bebas Challenge
+                Maks. 30 soal acak atau semua soal dari KB pilihan
               </p>
             </div>
           </div>
@@ -158,6 +153,20 @@ export default async function AcademicPage() {
             <span className="hidden sm:inline">Mulai</span>
             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
+        </Link>
+
+        <Link href="/academic/kisi-kisi"
+          className="bg-surface-bright border border-surface-variant hover:border-primary/40 rounded-[20px] p-4 flex items-center justify-between shadow-xs transition-all group active:scale-[0.99]">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-extrabold text-sm text-on-surface">Kisi-kisi</p>
+              <p className="text-xs text-secondary mt-0.5">Soal, kunci jawaban, dan catatan penjelasan</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 shrink-0 text-primary group-hover:translate-x-1 transition-transform" />
         </Link>
 
         <Link

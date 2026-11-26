@@ -137,7 +137,7 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
                     <h3 className="text-sm font-bold text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
                         <FileText className="w-4 h-4 text-primary" /> Kelola & Scan Soal
                     </h3>
-                    <OcrUploadPanel moduleId={params.moduleId} subjectName={module.subject_name} />
+                    <OcrUploadPanel key={user.id} moduleId={params.moduleId} subjectName={module.subject_name} userId={user.id} />
                 </section>
 
                 {/* Section: List Soal di Bank Soal */}

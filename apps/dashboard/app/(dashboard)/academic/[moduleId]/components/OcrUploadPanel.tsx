@@ -9,7 +9,7 @@ import QuizImages from '../../components/QuizImages';
 import {
     MAX_OCR_PHOTO_BASE64, MAX_PERSONAL_KEY_INPUT, OCR_CLIENT_TIMEOUT_MS, QUIZ_FIELDS,
     resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, mergeOcrStrips, readPersonalGeminiKeys,
-    readTokenMurahOcrSettings, TOKENMURAH_OCR_DEFAULT_MODEL, type TokenMurahOcrSettings,
+    readTokenMurahOcrSettings, TOKENMURAH_OCR_DEFAULT_MODEL, convertQuizToEssay, moveQuizOptionImagesToPrompt, type TokenMurahOcrSettings,
     type AcademicOcrResults, type AnswerKeyEntry, type ImageRegion, type OcrPage, type OcrPassage, type OcrQuestion, type OcrSolution, type OcrStrip, type QuizImage,
 } from '../../quiz-ocr';
 import { cropQuizImages, prepareOcrFile } from '../../quiz-ocr-images';
@@ -381,6 +381,14 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
         setPreviewQuestions(updated);
     };
 
+    const convertPreviewToEssay = (index: number) => {
+        setPreviewQuestions(prev => prev.map((question, position) => position === index ? {
+            ...question,
+            ...convertQuizToEssay(question),
+            ocr_images: moveQuizOptionImagesToPrompt(question.ocr_images),
+        } : question));
+    };
+
     const removePreviewQ = (idx: number) => {
         setExcludedIndices(prev => [...prev, idx]);
     };
@@ -691,6 +699,7 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
                                 resolved={resolved[index]}
                                 index={index}
                                 onChange={(field, val) => updatePreviewQ(index, field, val)}
+                                onConvert={() => convertPreviewToEssay(index)}
                                 onRemove={() => removePreviewQ(index)}
                             />
                         ))}
@@ -713,11 +722,12 @@ export default function OcrUploadPanel({ moduleId, subjectName, userId }: OcrUpl
 }
 
 // ─── Sub-komponen: Preview card per soal ────────────────────────
-function PreviewQuestionCard({ question, resolved, index, onChange, onRemove }: {
+function PreviewQuestionCard({ question, resolved, index, onChange, onConvert, onRemove }: {
     question: OcrQuestion;
     resolved: ReturnType<typeof resolveOcrQuestions>[number];
     index: number;
     onChange: (field: string, val: string) => void;
+    onConvert: () => void;
     onRemove: () => void;
 }) {
     const [expanded, setExpanded] = useState(true);
@@ -737,6 +747,14 @@ function PreviewQuestionCard({ question, resolved, index, onChange, onRemove }: 
 
             {expanded && (
                 <div className="mt-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-secondary">{question.question_type === 'MCQ' ? 'Pilihan ganda' : 'Esai'}</span>
+                        {question.question_type === 'MCQ' && (
+                            <button type="button" onClick={onConvert} className="rounded-full bg-peach-bg px-3 py-1.5 text-xs font-bold text-peach-fg">
+                                Ubah ke Esai
+                            </button>
+                        )}
+                    </div>
                     {resolved.issues.map(issue => <p key={issue} className="text-xs font-medium text-amber-700">{issue}</p>)}
                     {resolved.context && (
                         <p className="whitespace-pre-wrap rounded-lg bg-surface-container p-2 text-xs text-on-surface">{resolved.context}</p>
@@ -764,15 +782,23 @@ function PreviewQuestionCard({ question, resolved, index, onChange, onRemove }: 
                             ))}
                         </div>
                     )}
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-secondary">Jawaban:</span>
-                        <input
-                            className="w-16 bg-mint-bg/30 border border-mint-fg/30 text-mint-fg rounded-lg px-2 py-1 text-xs font-bold text-center focus:outline-none"
-                            value={question.correct_answer || '?'}
-                            onChange={e => onChange('correct_answer', e.target.value)}
-                        />
-                        <span className="text-[10px] text-secondary">(A/B/C/D atau teks untuk essay)</span>
-                    </div>
+                    {question.question_type === 'MCQ' ? (
+                        <label className="flex items-center gap-2 text-xs text-secondary">
+                            Kunci jawaban
+                            <input
+                                className="w-16 bg-mint-bg/30 border border-mint-fg/30 text-mint-fg rounded-lg px-2 py-1 text-xs font-bold text-center focus:outline-none"
+                                value={question.correct_answer}
+                                onChange={e => onChange('correct_answer', e.target.value)}
+                            />
+                        </label>
+                    ) : (
+                        <label className="grid gap-1 text-xs text-secondary">
+                            Kunci esai (opsional)
+                            <textarea rows={3} value={question.correct_answer === '?' ? '' : question.correct_answer}
+                                onChange={e => onChange('correct_answer', e.target.value)}
+                                className="w-full resize-y rounded-lg border border-surface-variant bg-surface-container px-3 py-2 text-sm text-on-surface" />
+                        </label>
+                    )}
                     <QuizImages images={resolved.images} field="correct_answer" />
                 </div>
             )}

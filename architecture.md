@@ -51,6 +51,8 @@ Proyek ini menggunakan arsitektur **Monorepo** yang memisahkan aplikasi backend 
 
 Scan Kunci mengembalikan huruf untuk pilihan ganda dan koordinat blok jawaban untuk esai. Browser memotong WebP dari foto asli dan menampilkan pratinjau per nomor. Saat diterapkan, server memasangkan hasil menurut nomor dan jenis soal. Database menambahkan gambar esai secara atomik ke `ocr_images` di posisi `correct_answer`, lalu bank soal, Kisi-kisi, dan review kuis menampilkannya.
 
+Saat pengguna mengubah pilihan ganda menjadi esai dari editor atau pratinjau OCR, teks dan gambar dari opsi menjadi bagian badan soal. Editor menyediakan kunci esai opsional dan perubahan diterapkan saat soal disimpan.
+
 ## Alur Challenge Mode (Kuis Kuliah)
 1. `QuizRunner.tsx` mengambil sampel soal MCQ asli; bila mode awal `challenge` (via `?mode=challenge`) atau user menekan tab Challenge, server action `batchParaphraseQuestions` dipanggil (chunk 10 soal ke Gemini).
 2. Tiap hasil divalidasi (kalimat harus berbeda dari asli, opsi lengkap), di-retry 1x bila gagal, lalu posisi opsi diacak dan `correct_answer` dipetakan ulang. Soal gagal tetap tampil asli dengan `is_paraphrased: false`.

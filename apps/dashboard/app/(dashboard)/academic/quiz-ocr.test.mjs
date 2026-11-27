@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     mergeOcrStrips, planOcrStrips, readPersonalGeminiKeys, parseOcrAnswerKey,
     parseOcrPage, resolveOcrQuestions, sortQuestionsBySourceNumber, fingerprintOcrPhoto, readTokenMurahOcrSettings,
+    convertQuizToEssay, moveQuizOptionImagesToPrompt,
 } from './quiz-ocr.ts';
 
 test('merencanakan potongan foto panjang yang menutup gambar dan saling tumpang tindih', () => {
@@ -110,6 +111,24 @@ test('membaca kotak seluruh jawaban esai tanpa mengubahnya menjadi teks atau hur
     }));
     assert.deepEqual(page, { choices: { 2: 'C' }, solutions: [solution] });
     assert.deepEqual(parseOcrAnswerKey(JSON.stringify({ solutions: [solution] })), { choices: {}, solutions: [solution] });
+});
+
+test('konversi esai mempertahankan subsoal dan gambar OCR serta mengosongkan kunci pilihan ganda', () => {
+    const draft = {
+        question_type: 'MCQ', question_text: 'Analisis tabel.',
+        option_a: 'Hitung jumlah.', option_b: null, option_c: 'Sebutkan penyebab.', option_d: '', correct_answer: 'c',
+    };
+    assert.deepEqual(convertQuizToEssay(draft), {
+        question_type: 'ESSAY', question_text: 'Analisis tabel.\nA. Hitung jumlah.\nC. Sebutkan penyebab.',
+        option_a: null, option_b: null, option_c: null, option_d: null, correct_answer: '',
+    });
+    assert.equal(convertQuizToEssay({ ...draft, correct_answer: 'Jumlahnya 10.' }).correct_answer, 'Jumlahnya 10.');
+
+    const stem = { field: 'question_text', data: 'tabel' };
+    const answer = { field: 'correct_answer', data: 'solusi' };
+    assert.deepEqual(moveQuizOptionImagesToPrompt([stem, { field: 'option_b', data: 'diagram' }, answer]), [
+        stem, { field: 'question_text', data: 'diagram', label: 'Bagian B' }, answer,
+    ]);
 });
 
 function question(number, extra = {}) {

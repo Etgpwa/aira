@@ -91,6 +91,7 @@ Dokumen ini merangkum seluruh perkembangan proyek (*roadmap*) dari awal pembentu
 
 - Scan Kunci memotong jawaban esai dari foto dan menampilkan WebP per nomor sebelum diterapkan ke bank soal. Kunci pilihan ganda tetap berupa huruf.
 - Catatan Kisi-kisi dan review simulasi mendukung unggah atau tempel gambar dari clipboard. Penambahan dan penghapusan lampiran tersimpan otomatis setelah migrasi Supabase.
+- Pratinjau OCR dan editor bank soal menyediakan tombol **Ubah ke Esai** untuk memperbaiki soal yang terbaca sebagai pilihan ganda. Teks dan gambar yang terbaca sebagai opsi dipindahkan ke badan soal agar subsoal tetap tersedia.
 
 ## Fase Selanjutnya (Future Scope / Backlog)
 

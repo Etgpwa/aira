@@ -27,6 +27,37 @@ export interface OcrQuestion {
     failed_crops: number;
 }
 
+export type QuizQuestionEdit = Pick<OcrQuestion,
+    'question_type' | 'question_text' | 'option_a' | 'option_b' | 'option_c' | 'option_d' | 'correct_answer'>;
+
+export function convertQuizToEssay(question: QuizQuestionEdit): QuizQuestionEdit {
+    if (question.question_type === 'ESSAY') return question;
+
+    const parts = QUIZ_FIELDS.slice(1, 5).flatMap((field, index) => {
+        const text = question[field]?.trim();
+        return text ? [`${'ABCD'[index]}. ${text}`] : [];
+    });
+    const answer = question.correct_answer.trim();
+    return {
+        question_type: 'ESSAY',
+        question_text: [question.question_text.trimEnd(), ...parts].filter(Boolean).join('\n'),
+        option_a: null,
+        option_b: null,
+        option_c: null,
+        option_d: null,
+        correct_answer: /^(?:[A-E][.)]?|\?)$/i.test(answer) ? '' : answer,
+    };
+}
+
+export function moveQuizOptionImagesToPrompt(images: QuizImage[]): QuizImage[] {
+    return images.map(image => {
+        const option = QUIZ_FIELDS.indexOf(image.field) - 1;
+        return option >= 0 && option < 4
+            ? { ...image, field: 'question_text', label: image.label || `Bagian ${'ABCD'[option]}` }
+            : image;
+    });
+}
+
 export interface OcrPassage {
     first_number: number | null;
     last_number: number | null;

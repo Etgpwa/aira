@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { GoogleGenAI } from '@google/genai';
 import { revalidatePath } from 'next/cache';
-import { MAX_IMAGE_BASE64, QUIZ_FIELDS, sortQuestionsBySourceNumber, type AnswerKeyEntry, type QuizImage } from './quiz-ocr';
+import { MAX_IMAGE_BASE64, QUIZ_FIELDS, moveQuizOptionImagesToPrompt, sortQuestionsBySourceNumber, type AnswerKeyEntry, type QuizImage, type QuizQuestionEdit } from './quiz-ocr';
 import { EVENT_QUESTION_BATCH_SIZE, EVENT_RANDOM_COUNT, MAX_NOTE_IMAGES, findAnswerKeyQuestion, shuffleQuizItems, type EventQuestionSelection, type QuizBankQuestion } from './quiz-bank';
 
 // ────────────────────────────────────────────────────────────────
@@ -246,26 +246,46 @@ export async function saveQuestions(questions: any[], moduleId: string) {
     return { success: true };
 }
 
-export async function updateQuestion(questionId: string, data: any) {
+export async function updateQuestion(
+    questionId: string, data: QuizQuestionEdit, moduleId: string, originalType: QuizQuestionEdit['question_type'],
+) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Tidak terautentikasi');
 
-    const { error } = await supabase.from('course_quiz_questions')
+    const bank = supabase.from('course_quiz_questions');
+    const isEssay = data.question_type === 'ESSAY';
+    let movedImages: QuizImage[] | undefined;
+    if (isEssay && originalType === 'MCQ') {
+        const { data: original, error } = await bank.select('*')
+            .eq('id', questionId).eq('user_id', user.id).eq('module_id', moduleId).eq('question_type', originalType).maybeSingle();
+        if (error) return { error: 'Gagal membaca soal. Coba lagi.' };
+        if (!original) return { error: 'Soal sudah berubah atau tidak tersedia. Muat ulang halaman sebelum mengedit.' };
+        const images: QuizImage[] | undefined = original.ocr_images;
+        if (images?.some(image => image.field.startsWith('option_'))) movedImages = moveQuizOptionImagesToPrompt(images);
+    }
+
+    const { data: saved, error } = await bank
         .update({
             question_text: data.question_text,
             question_type: data.question_type,
-            option_a: data.option_a || null,
-            option_b: data.option_b || null,
-            option_c: data.option_c || null,
-            option_d: data.option_d || null,
-            correct_answer: data.correct_answer,
+            option_a: isEssay ? null : data.option_a || null,
+            option_b: isEssay ? null : data.option_b || null,
+            option_c: isEssay ? null : data.option_c || null,
+            option_d: isEssay ? null : data.option_d || null,
+            correct_answer: isEssay ? data.correct_answer.trim() || '?' : data.correct_answer,
+            ...(movedImages ? { ocr_images: movedImages } : {}),
         })
-        .eq('id', questionId)
-        .eq('user_id', user.id);
+        .eq('id', questionId).eq('user_id', user.id).eq('module_id', moduleId).eq('question_type', originalType)
+        .select('id').maybeSingle();
 
-    if (error) throw error;
+    if (error) return { error: 'Gagal menyimpan soal. Coba lagi.' };
+    if (!saved) return { error: 'Soal sudah berubah atau tidak tersedia. Muat ulang halaman sebelum mengedit.' };
     revalidatePath('/academic');
+    revalidatePath(`/academic/${moduleId}`);
+    revalidatePath(`/academic/${moduleId}/quiz`);
+    revalidatePath('/academic/kisi-kisi');
+    return { success: true };
 }
 
 export async function deleteQuestion(questionId: string, moduleId: string) {
